@@ -1,26 +1,221 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* Required for @streamdown/math (KaTeX) to render correctly — without
+   this, Eva's math blocks would output the right KaTeX markup but with no
+   actual math styling (spacing, fraction bars, etc. all come from here). */
+@import "katex/dist/katex.min.css";
+
+/* Switches Tailwind's dark: variant to require a .dark ancestor class instead
+   of following OS prefers-color-scheme. Nothing in this app ever adds .dark,
+   so every dark: utility shipped inside shadcn components (button.tsx etc.)
+   stays permanently inert — this is how "no dark theme" is enforced now that
+   components bring their own dark: classes. Do not remove. */
+@custom-variant dark (&:is(.dark *));
 
 :root {
+  /* White-base hierarchy: the page itself is pure white. Depth comes from
+     borders + shadow-soft on cards, and from soft brand-color gradient
+     washes applied selectively to "feature" zones (the main Eva CTA, the
+     best-value pricing tier) — never a flat tinted page canvas. This
+     replaces an earlier tinted-canvas approach that read as muddy; a
+     Dribbble reference (white base, soft mint glow behind the hero chat
+     panel) is the model now. background-subtle is still used for small
+     neutral nested wells (e.g. a de-emphasized fine-print card). */
   --background: #ffffff;
-  --foreground: #171717;
+  --background-subtle: #f6f5f3;
+  --foreground: #1c1b19;
+  --muted-foreground: #6b6a63;
+  --border: #e7e5e1;
+
+  --primary: #11945d;
+  --primary-hover: #0d7a4d;
+  --primary-foreground: #ffffff;
+
+  --accent-gold: #a8871f;
+
+  --shadow-soft: 0 2px 4px rgba(28, 27, 25, 0.04), 0 16px 40px -16px rgba(28, 27, 25, 0.14);
+
+  /* Popover-family surfaces (dropdown/select/hover-card content) — a huge,
+     very faint, widely-spread shadow so the surface reads as "floating"
+     rather than boxed, kept clean by a tight low-opacity contact shadow
+     plus a crisp 1px ring (applied alongside this, not inside it). */
+  --shadow-popover: 0 2px 6px rgba(28, 27, 25, 0.03), 0 40px 80px -20px rgba(28, 27, 25, 0.16);
+
+  /* shadcn structural tokens below this line — added by `shadcn init`, kept
+     as neutral utility tones (not brand colors) except where tied back to
+     our own tokens for consistency. */
+  --card: #ffffff;
+  --card-foreground: var(--foreground);
+  --popover: #ffffff;
+  --popover-foreground: var(--foreground);
+
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: var(--foreground);
+
+  --muted: var(--background-subtle);
+
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: var(--foreground);
+
+  --destructive: oklch(0.577 0.245 27.325);
+
+  --input: var(--border);
+  --ring: var(--primary);
+
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+
+  /* Generous, premium rounding (14px base) — the signature "expensive SaaS"
+     softness from the reference, up from an earlier, more utilitarian 8px. */
+  --radius: 0.875rem;
+
+  /* Same white as the page — separated by sidebar-border only, matching the
+     reference's borderless-color, border-line sidebar treatment. */
+  --sidebar: #ffffff;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--primary);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-subtle: var(--background-subtle);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-accent-gold: var(--accent-gold);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-popover: var(--shadow-popover);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Body font. Swap the active line to switch the whole site's default
+     paragraph font between Jost and League Spartan. */
+  /* --font-sans: var(--font-jost); */
+  --font-sans: var(--font-league-spartan);
+
+  --font-heading: var(--font-suse);
+
+  /* Explicit alternate, independent of --font-sans above, so individual
+     paragraphs can use Jost for comparison without flipping the default. */
+  --font-alt: var(--font-jost);
+
+  /* Fluid type scale: each size holds its default (mobile) value as the
+     clamp() floor and grows toward a larger ceiling by ~1536px viewport
+     width, so every text-* utility scales up on desktop with no per-component
+     changes. Line-heights are untouched (Tailwind's defaults are unitless
+     ratios, so they stay proportional automatically). */
+  --text-xs: clamp(0.75rem, 0.7096rem + 0.1723vw, 0.875rem);
+  --text-sm: clamp(0.875rem, 0.8346rem + 0.1723vw, 1rem);
+  --text-base: clamp(1rem, 0.9193rem + 0.3445vw, 1.25rem);
+  --text-lg: clamp(1.125rem, 1.0039rem + 0.5168vw, 1.5rem);
+  --text-xl: clamp(1.25rem, 1.0885rem + 0.6891vw, 1.75rem);
+  --text-2xl: clamp(1.5rem, 1.2578rem + 1.0336vw, 2.25rem);
+  --text-3xl: clamp(1.875rem, 1.552rem + 1.3781vw, 2.875rem);
+  --text-4xl: clamp(2.25rem, 1.7655rem + 2.0672vw, 3.75rem);
+  --text-5xl: clamp(3rem, 2.354rem + 2.7562vw, 5rem);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+
+  /* Native <button> defaults to cursor: default in Chrome/Firefox, not
+     pointer — this covers every clickable that doesn't already set its own
+     cursor (Button, AccordionTrigger, Tabs/Dialog/Select triggers, Sidebar
+     menu buttons, etc). A few shadcn components (dropdown-menu, select,
+     command item rows) hardcode cursor-default themselves at the utility
+     layer, which beats this base-layer rule on specificity — those were
+     changed directly to cursor-pointer instead of fighting that here. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  summary {
+    cursor: pointer;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Eva's math blocks ($$...$$ via @streamdown/math/KaTeX) get their own
+   treatment — set off from surrounding prose as a distinct "here's the
+   formula" moment instead of blending into the paragraph flow. .katex-display
+   is KaTeX's own wrapper class for block (not inline) math. */
+.katex-display {
+  margin: 0.75rem 0;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius);
+  background-color: var(--color-muted);
+  overflow-x: auto;
+}
+
+/* KaTeX's own base rule (.katex) hardcodes font: ...KaTeX_Main, Times New
+   Roman, serif at 1.21em — kept as-is on purpose (that's KaTeX's native
+   math serif, not an app font override), just resizing it here since
+   1.21em stacks multiplicatively with whatever this wrapper sets. */
+.katex-display .katex {
+  font-size: 1.15em;
+  font-weight: 600;
 }

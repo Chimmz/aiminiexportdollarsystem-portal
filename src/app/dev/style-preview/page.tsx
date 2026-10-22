@@ -1,69 +1,101 @@
-import Image from "next/image";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-10 px-6 py-16">
+      <section className="space-y-3">
+        <p className="text-sm font-medium text-accent-gold">Style preview</p>
+        <h1 className="text-4xl font-semibold tracking-tight">Your AI Export Mentor</h1>
+        <h2 className="text-xl font-medium text-muted-foreground">
+          A second-level heading, for section titles
+        </h2>
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="text-base font-semibold">A third-level heading</h3>
+        <p className="max-w-prose text-base leading-7">
+          This is body text set in Jost, the typeface picked for anything you read at
+          length. It should feel light, clean, and easy to scan even when a paragraph runs
+          a few lines long, the way this one does.
+        </p>
+
+        <p className="max-w-prose text-base leading-7">
+          This is body text set in Jost, the typeface picked for anything you read at
+          length. It should feel light, clean, and easy to scan even when a paragraph runs
+          a few lines long, the way this one does.
+        </p>
+        <p className="max-w-prose text-base leading-7">
+          This is body text set in Jost, the typeface picked for anything you read at
+          length. It should feel light, clean, and easy to scan even when a paragraph runs
+          a few lines long, the way this one does.
+        </p>
+        <p className="max-w-prose text-sm text-muted-foreground">
+          This is muted text, used for secondary detail, timestamps, or supporting
+          captions sitting underneath something more important.
+        </p>
+      </section>
+
+      {/* Paragraph font comparison (Jost vs League Spartan) — Jost won.
+      <section className="space-y-6">
+        <h3 className="text-base font-semibold">Paragraph font comparison</h3>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">
+            Jost — current default body font
+          </p>
+          <p className="max-w-prose text-base leading-7">
+            A buyer opening this portal for the first time should be able to tell,
+            within a glance, what to do next. Clear hierarchy matters more here than
+            personality, since this screen gets scanned dozens of times, not read once
+            like a sales page.
+          </p>
+          <p className="max-w-prose text-base leading-7">
+            Numbers, naira amounts, and short status lines will sit next to this kind
+            of paragraph often, so the typeface needs to stay legible at smaller sizes
+            too, not just as a display face at the top of the page.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">
+            League Spartan — candidate, applied via the font-alt class
+          </p>
+          <p className="max-w-prose text-base leading-7 font-alt">
+            A buyer opening this portal for the first time should be able to tell,
+            within a glance, what to do next. Clear hierarchy matters more here than
+            personality, since this screen gets scanned dozens of times, not read once
+            like a sales page.
+          </p>
+          <p className="max-w-prose text-base leading-7 font-alt">
+            Numbers, naira amounts, and short status lines will sit next to this kind
+            of paragraph often, so the typeface needs to stay legible at smaller sizes
+            too, not just as a display face at the top of the page.
+          </p>
         </div>
-      </main>
-    </div>
+      </section>
+      */}
+
+      <section className="flex flex-wrap items-center gap-3">
+        <Button>Primary button</Button>
+        <Button variant="outline">Secondary button</Button>
+        <a
+          href="#"
+          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          A text link
+        </a>
+        <span className="rounded-full bg-accent-gold/10 px-3 py-1 text-xs font-medium text-accent-gold">
+          Gold badge
+        </span>
+      </section>
+
+      <section className="rounded-lg border border-border bg-background p-6 shadow-soft">
+        <h3 className="text-base font-semibold">An elevated card</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Cards like this lift gently off the page with a soft shadow, used only where
+          content is genuinely grouped together.
+        </p>
+      </section>
+    </main>
   );
 }

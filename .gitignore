@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local, non-persistent caches (dev-only tooling)
+/.rag-lab-cache/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

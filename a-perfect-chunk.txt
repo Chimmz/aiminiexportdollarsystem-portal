@@ -1,0 +1,32 @@
+The core test: if this chunk is the only thing a model sees, is it self-contained and useful? Everything else follows from that. Concrete criteria:
+
+1. Semantic self-containment — a chunk should express one complete idea, not half of one. If understanding it requires the sentence before or after ("as mentioned above...", a pronoun referring to something earlier, a list item without its intro), the chunk fails even if the embedding happens to retrieve it. This is why boundary placement matters more than exact size — splitting on headings/paragraphs/sentences (what your separator priority list does) beats splitting on a raw character count.
+
+2. Right granularity — not too big, not too small.
+- Too large → the embedding averages multiple topics into one vector. A query about one sub-topic in a long chunk won't score as high as it should, because the vector is diluted by everything else in the chunk.
+- Too small → the chunk lacks enough context to be useful even when correctly retrieved (e.g. a lone sentence fragment), and the embedding can latch onto something trivial.
+- There's no universal magic number — it depends on content density. A terse FAQ answer might be a perfect 40-word chunk; an explanatory paragraph might need 300.
+
+3. Consistent size distribution across the whole corpus — this is the one that connects to our last conversation. If file A's chunks average 100 chars and file B's average 800, they don't compete fairly in cosine similarity — length skews what "closest match" means. Uniform target size (even if exact boundaries vary) matters more at the corpus level than at the single-file level.
+
+4. Structured content stays intact — a table row, a numbered step, a Q&A pair, a code block should never be split mid-unit. Half a table is worse than no table.
+
+5. Topic/section context isn't silently lost — a chunk pulled from deep in "Section 3: Buyer Vetting" reads fine in place, but in isolation it may not even mention "buyer vetting." A common fix is prepending a lightweight breadcrumb (the heading it fell under) to the chunk content before embedding — so the chunk still carries its topic when read standalone.
+
+6. Overlap is tuned, not maximized — a little overlap prevents meaning from being severed exactly at a boundary. Too much creates near-duplicate chunks that both retrieve for the same query and waste top-k slots on redundancy instead of diversity.
+
+7. No boilerplate duplication — repeated headers/footers/disclaimers embedded once per file pollute the vector space with many near-identical, low-information vectors.
+
+
+
+For your eyeball-review step specifically, the fastest proxy for all of this is: read the chunk with zero surrounding context and ask "could I answer a question with just this, and does it feel like one thought" — if yes, the rest of the criteria above are usually already satisfied.
+
+
+
+
+
+
+- Heading-carry restores document/section identity — "what topic is this chunk even about." It replays a title, not body content.
+- Overlap protects local continuity — it stops an idea that spans a chunk boundary (a sentence's reasoning, a list item and the line explaining it, a conclusion right after its setup) from being fully severed, by letting the tail of one chunk bleed into the start of the next.
+
+A chunk with heading-carry but no overlap can still lose a thought that happens to fall exactly on a boundary — the heading tells you what section you're in, but says nothing about the sentence that got cut in half two chunks ago. They're complementary: heading-carry fixes "lost topic," overlap fixes "lost continuity at the seam." Keep both.

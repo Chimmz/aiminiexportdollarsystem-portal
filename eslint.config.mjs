@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored component sources (shadcn/ui + AI Elements registries) —
+    // used as-is, not hand-edited, so our lint rules don't apply to them.
+    "src/components/ui/**",
+    "src/components/ai-elements/**",
+    "src/hooks/use-mobile.ts",
   ]),
 ]);
 
