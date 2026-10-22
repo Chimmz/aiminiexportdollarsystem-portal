@@ -16,18 +16,11 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { MessageFeedback } from '@/components/ai-elements/message-feedback';
-import {
-  PromptInput,
-  PromptInputBody,
-  PromptInputFooter,
-  PromptInputSubmit,
-  PromptInputTextarea,
-  PromptInputTools,
-} from '@/components/ai-elements/prompt-input';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { Shimmer } from '@/components/ai-elements/shimmer';
-import type { PromptInputMessage } from '@/components/ai-elements/prompt-input';
+import { MentorPromptInput } from '@/components/mentor/mentor-prompt-input';
 import { MentorEmptyChat } from './empty';
+import { MentorControlsRail } from '@/components/dashboard/mentor-controls-rail';
 import { ContactsCarousel } from '@/components/tools-ui/contacts-carousel';
 import { ContactSearchPanel } from '@/components/tools-ui/contact-search-panel';
 import { AnswerChunksPanel } from '@/components/tools-ui/answer-chunks-panel';
@@ -62,7 +55,7 @@ function messageHasText(message: UIMessage): boolean {
   return message.parts.some((part) => part.type === 'text' && part.text.trim().length > 0);
 }
 
-export function MentorChatClient() {
+export function MentorChatClient({ firstName }: { firstName: string | null }) {
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get('prompt');
   const hasAutoSubmittedRef = useRef(false);
@@ -84,9 +77,14 @@ export function MentorChatClient() {
     }, 400);
   }, []);
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, setMessages } = useChat({
     transport: new DefaultChatTransport({ api: '/api/mentor/chat' }),
   });
+
+  // Handed down to MentorControlsRail, which lives as this component's
+  // sibling (see the two returns below) rather than a descendant -- the
+  // rail has no reason to know useChat exists beyond this one callback.
+  const handleClearChat = useCallback(() => setMessages([]), [setMessages]);
 
   // Came here from a suggestion chip elsewhere (e.g. the dashboard home
   // card) via ?prompt= — auto-send it once on arrival.
@@ -98,9 +96,8 @@ export function MentorChatClient() {
   }, [initialPrompt, sendMessage]);
 
   const handleSubmit = useCallback(
-    (message: PromptInputMessage) => {
-      if (!message.text.trim()) return;
-      sendMessage({ text: message.text });
+    (text: string) => {
+      sendMessage({ text });
     },
     [sendMessage]
   );
@@ -159,28 +156,44 @@ export function MentorChatClient() {
   const loadingWord = useMemo(() => pickLoadingWord(), [messages.length]);
 
   // Shared between the centered empty-state layout and the normal
-  // bottom-pinned layout — same input either way.
+  // bottom-pinned layout -- built from scratch (mentor-prompt-input.tsx),
+  // not ai-elements' PromptInput; see that file for why. White + a
+  // standing (not hover-only) shadow for the empty-state hero, so it reads
+  // as a floating card against the page rather than a flat bordered box.
   const promptInput = (
-    <PromptInput onSubmit={handleSubmit}>
-      <PromptInputBody>
-        <PromptInputTextarea placeholder="Ask Eva anything about sourcing, pricing, or buyers..." />
-      </PromptInputBody>
-      <PromptInputFooter>
-        <PromptInputTools />
-        <PromptInputSubmit status={status} />
-      </PromptInputFooter>
-    </PromptInput>
+    <MentorPromptInput
+      status={status}
+      placeholder="Ask Eva anything about sourcing, pricing, or buyers..."
+      onSubmit={handleSubmit}
+      className={isEmpty ? 'bg-background shadow-md' : undefined}
+      submitButtonClassName={isEmpty ? 'rounded-full' : undefined}
+    />
   );
 
   if (isEmpty) {
     const starterSuggestions = (
       <Suggestions>
         {starterPrompts.map((prompt) => (
-          <Suggestion key={prompt} suggestion={prompt} onClick={handleSuggestionClick} />
+          <Suggestion
+            key={prompt}
+            suggestion={prompt}
+            onClick={handleSuggestionClick}
+            size="xs"
+            className="px-3"
+          />
         ))}
       </Suggestions>
     );
-    return <MentorEmptyChat promptInput={promptInput} suggestions={starterSuggestions} />;
+    // No controls rail here -- there's no chat yet to clear and nothing
+    // saved to memory worth surfacing controls for; it only earns its
+    // place once a conversation actually exists (see the return below).
+    return (
+      <MentorEmptyChat
+        firstName={firstName}
+        promptInput={promptInput}
+        suggestions={starterSuggestions}
+      />
+    );
   }
 
   // Once the conversation is underway, the generic starter prompts are
@@ -200,131 +213,134 @@ export function MentorChatClient() {
   ) : null;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden px-8 pt-4 pb-6">
-      <Conversation
-        className="min-h-0 flex-1"
-        targetScrollTop={(targetScrollTop, { scrollElement }: ScrollElements) =>
-          suppressAutoScrollRef.current ? scrollElement.scrollTop : targetScrollTop
-        }
-      >
-        <ConversationContent className="mb-16" scrollClassName="scrollbar-none">
-          {visibleMessages.map((message) => (
-            <Message key={message.id} from={message.role}>
-              <MessageContent>
-                {message.parts.map((part, i) => {
-                  const key = `${message.id}-${i}`;
-                  switch (part.type) {
-                    case 'text':
-                      return <MessageResponse key={key}>{part.text}</MessageResponse>;
-                    case 'tool-searchContacts': {
-                      if (part.state !== 'output-available') return null;
-                      const input = part.input as {
-                        query: string;
-                        locations: string[] | null;
-                      };
-                      const output = part.output as { contacts: ContactCard[]; note?: string };
-                      return (
-                        <Fragment key={key}>
-                          <ContactSearchPanel
+    <div className="flex h-full">
+      <MentorControlsRail onClearChat={handleClearChat} hasMessages={messages.length > 0} />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-8 pt-4 pb-6">
+        <Conversation
+          className="min-h-0 flex-1"
+          targetScrollTop={(targetScrollTop, { scrollElement }: ScrollElements) =>
+            suppressAutoScrollRef.current ? scrollElement.scrollTop : targetScrollTop
+          }
+        >
+          <ConversationContent className="mb-16" scrollClassName="scrollbar-none">
+            {visibleMessages.map((message) => (
+              <Message key={message.id} from={message.role}>
+                <MessageContent>
+                  {message.parts.map((part, i) => {
+                    const key = `${message.id}-${i}`;
+                    switch (part.type) {
+                      case 'text':
+                        return <MessageResponse key={key}>{part.text}</MessageResponse>;
+                      case 'tool-searchContacts': {
+                        if (part.state !== 'output-available') return null;
+                        const input = part.input as {
+                          query: string;
+                          locations: string[] | null;
+                        };
+                        const output = part.output as { contacts: ContactCard[]; note?: string };
+                        return (
+                          <Fragment key={key}>
+                            <ContactSearchPanel
+                              query={input.query}
+                              locations={input.locations}
+                              contacts={output.contacts}
+                              note={output.note}
+                              onToggle={handlePanelToggle}
+                            />
+                            <ContactsCarousel contacts={output.contacts} query={input.query} />
+                          </Fragment>
+                        );
+                      }
+                      case 'tool-answerQuestion': {
+                        if (part.state !== 'output-available') return null;
+                        const input = part.input as {
+                          query: string;
+                          keyword: string | null;
+                        };
+                        const output = part.output as {
+                          chunks: RetrievedChunk[];
+                          retrievedInMs?: number;
+                        };
+                        return (
+                          <AnswerChunksPanel
+                            key={key}
                             query={input.query}
-                            locations={input.locations}
-                            contacts={output.contacts}
-                            note={output.note}
+                            keyword={input.keyword}
+                            chunks={output.chunks}
+                            retrievedInMs={output.retrievedInMs}
                             onToggle={handlePanelToggle}
                           />
-                          <ContactsCarousel contacts={output.contacts} query={input.query} />
-                        </Fragment>
-                      );
+                        );
+                      }
+                      case 'tool-manageMemory': {
+                        if (part.state !== 'output-available') return null;
+                        const input = part.input as {
+                          operations: ComponentProps<typeof MemoryUpdatesPanel>['operations'];
+                        };
+                        const output = part.output as { ok: boolean };
+                        return (
+                          <MemoryUpdatesPanel
+                            key={key}
+                            operations={input.operations}
+                            ok={output.ok}
+                            onToggle={handlePanelToggle}
+                          />
+                        );
+                      }
+                      case 'tool-calculatePricing': {
+                        if (part.state !== 'output-available') return null;
+                        const output = part.output as {
+                          product: string | null;
+                          bankRate: number;
+                          asOf: string;
+                          isFallback: boolean;
+                        };
+                        return (
+                          <PricingCalculatorPanel
+                            key={key}
+                            product={output.product}
+                            bankRate={output.bankRate}
+                            asOf={output.asOf}
+                            isFallback={output.isFallback}
+                            onSave={(message) => sendMessage({ text: message })}
+                            onToggle={handlePanelToggle}
+                          />
+                        );
+                      }
+                      default:
+                        return null;
                     }
-                    case 'tool-answerQuestion': {
-                      if (part.state !== 'output-available') return null;
-                      const input = part.input as {
-                        query: string;
-                        keyword: string | null;
-                      };
-                      const output = part.output as {
-                        chunks: RetrievedChunk[];
-                        retrievedInMs?: number;
-                      };
-                      return (
-                        <AnswerChunksPanel
-                          key={key}
-                          query={input.query}
-                          keyword={input.keyword}
-                          chunks={output.chunks}
-                          retrievedInMs={output.retrievedInMs}
-                          onToggle={handlePanelToggle}
-                        />
-                      );
-                    }
-                    case 'tool-manageMemory': {
-                      if (part.state !== 'output-available') return null;
-                      const input = part.input as {
-                        operations: ComponentProps<typeof MemoryUpdatesPanel>['operations'];
-                      };
-                      const output = part.output as { ok: boolean };
-                      return (
-                        <MemoryUpdatesPanel
-                          key={key}
-                          operations={input.operations}
-                          ok={output.ok}
-                          onToggle={handlePanelToggle}
-                        />
-                      );
-                    }
-                    case 'tool-calculatePricing': {
-                      if (part.state !== 'output-available') return null;
-                      const output = part.output as {
-                        product: string | null;
-                        bankRate: number;
-                        asOf: string;
-                        isFallback: boolean;
-                      };
-                      return (
-                        <PricingCalculatorPanel
-                          key={key}
-                          product={output.product}
-                          bankRate={output.bankRate}
-                          asOf={output.asOf}
-                          isFallback={output.isFallback}
-                          onSave={(message) => sendMessage({ text: message })}
-                          onToggle={handlePanelToggle}
-                        />
-                      );
-                    }
-                    default:
-                      return null;
-                  }
-                })}
-              </MessageContent>
-              {message.role === 'assistant' && messageHasText(message) ? (
-                <MessageFeedback />
-              ) : null}
-            </Message>
-          ))}
-          {showLoadingIndicator ? (
-            <Message from="assistant">
-              <MessageContent>
-                <span className="flex items-center gap-2 py-1">
-                  <Shimmer as="span" duration={1.2} className="text-sm">
-                    {`${loadingWord}...`}
-                  </Shimmer>
-                  <span className="inline-flex gap-1">
-                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground" />
+                  })}
+                </MessageContent>
+                {message.role === 'assistant' && messageHasText(message) ? (
+                  <MessageFeedback />
+                ) : null}
+              </Message>
+            ))}
+            {showLoadingIndicator ? (
+              <Message from="assistant">
+                <MessageContent>
+                  <span className="flex items-center gap-2 py-1">
+                    <Shimmer as="span" duration={1.2} className="text-sm">
+                      {`${loadingWord}...`}
+                    </Shimmer>
+                    <span className="inline-flex gap-1">
+                      <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
+                      <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
+                      <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground" />
+                    </span>
                   </span>
-                </span>
-              </MessageContent>
-            </Message>
-          ) : null}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
+                </MessageContent>
+              </Message>
+            ) : null}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
 
-      <div className="shrink-0 space-y-3 pt-4">
-        {chatSuggestions}
-        {promptInput}
+        <div className="shrink-0 space-y-3 pt-4">
+          {chatSuggestions}
+          {promptInput}
+        </div>
       </div>
     </div>
   );

@@ -26,7 +26,10 @@
   --background-subtle: #f6f5f3;
   --foreground: #1c1b19;
   --muted-foreground: #6b6a63;
-  --border: #e7e5e1;
+  /* A notch darker than the original #e7e5e1 -- that one read as too faint
+     against --background/--background-subtle app-wide (cards, inputs,
+     dividers all rely on this one token). */
+  --border: #d9d7d2;
 
   --primary: #11945d;
   --primary-hover: #0d7a4d;
@@ -73,13 +76,36 @@
      softness from the reference, up from an earlier, more utilitarian 8px. */
   --radius: 0.875rem;
 
-  /* Same white as the page — separated by sidebar-border only, matching the
-     reference's borderless-color, border-line sidebar treatment. */
-  --sidebar: #ffffff;
+  /* The dashboard *layout* canvas -- the gutter visible around the nav
+     rail and the white content card, not the card itself (SidebarInset
+     keeps the site's normal --background white, see that token's comment
+     above; this never touches sign-in or any non-dashboard page either).
+     A soft, very desaturated tint of the brand primary's hue. Applied as
+     an inline style on SidebarProvider in dashboard/layout.tsx -- it has
+     to win over that component's own has-data-[variant=inset]:bg-sidebar
+     rule (ui/sidebar.tsx), and a plain unscoped className can't reliably
+     beat a variant-scoped one through tailwind-merge, so inline style
+     (unconditional, highest priority) is the deterministic way in. */
+  --page-canvas: #eff7f1;
+
+  /* The nav rail's own surface -- same soft green as --page-canvas, so the
+     rail reads as one continuous surface with the layout gutter around it
+     again (it paints the sidebar panel directly, bg-sidebar on
+     ui/sidebar.tsx's sidebar-inner div, independently of --page-canvas's
+     inline-style route onto the wrapper -- see that token's comment --
+     they're just the same color by choice, not by mechanism). The
+     active-link pill (bg-primary, see app-sidebar.tsx) still pops against
+     it the same way it would against white. */
+  --sidebar: var(--page-canvas);
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: var(--accent);
+  /* Nav item hover wash (SidebarMenuButton's hover:bg-sidebar-accent) --
+     was the shared shadcn default (--accent, a neutral near-white gray),
+     which read as a mismatched gray box once the rail itself went green.
+     A translucent primary tint instead, so hovering a link just deepens
+     the same green rather than introducing an unrelated color. */
+  --sidebar-accent: rgba(17, 148, 93, 0.12);
   --sidebar-accent-foreground: var(--accent-foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--primary);

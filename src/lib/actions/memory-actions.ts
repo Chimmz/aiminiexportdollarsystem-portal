@@ -33,11 +33,15 @@ export async function getProfileFacts(userId: string): Promise<ProfileFact[]> {
 // "add" and "update" from manage-memory-tool.ts both land here -- fact_type
 // is unique per user (see schema_app.sql), so both are really just an
 // upsert, same as a progress step's status transition in journey-actions.ts.
+// source defaults to the model's own extraction path; the chat-controls
+// rail's manual "add a fact" form is the only other caller, passing
+// 'user_provided' instead (see memory-utils.ts's ProfileFact['source']).
 export async function upsertProfileFact(
   userId: string,
   factType: string,
   factValue: string,
-  confidence: number | null
+  confidence: number | null,
+  source: ProfileFact['source'] = 'chat_extracted'
 ): Promise<void> {
   const supabase = createServiceClient();
   const { error } = await supabase.from('profile_facts').upsert(
@@ -46,7 +50,7 @@ export async function upsertProfileFact(
       fact_type: factType,
       fact_value: factValue,
       confidence,
-      source: 'chat_extracted',
+      source,
     },
     { onConflict: 'user_id,fact_type' }
   );
@@ -65,6 +69,17 @@ export async function deleteProfileFact(userId: string, factType: string): Promi
     .eq('user_id', userId)
     .eq('fact_type', factType);
   if (error) throw new Error(`delete profile fact: ${error.message}`);
+}
+
+// The chat-controls rail's "clear all memory" action -- a full reset of
+// loose facts, same reasoning as deleteProfileFact above (a fact can be
+// outright wrong, and here the user wants to wipe the slate rather than
+// correct one entry at a time). Journey/deal progress is untouched; that's
+// a separate reset the rail doesn't expose yet.
+export async function clearProfileFacts(userId: string): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase.from('profile_facts').delete().eq('user_id', userId);
+  if (error) throw new Error(`clear profile facts: ${error.message}`);
 }
 
 // Fetched once per request (same pattern as getCurrentUserFirstName in

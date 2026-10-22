@@ -39,13 +39,26 @@ export function createAnswerQuestionTool(messages: ModelMessage[]) {
           null if the question is abstract/conversational and literal keyword
           matching wouldn't help.`
         ),
+      scope: z
+        .enum(['specific', 'medium', 'broad'])
+        .describe(
+          `How wide a net this question needs. "specific" for something
+          narrow and concrete (one product, one step, one number — e.g.
+          "what's the bank rate" or "how do I seal a crayfish pack").
+          "broad" for an open-ended guide/process question spanning many
+          subtopics (e.g. "guide me through labeling and branding
+          generally", "how do I start exporting"). "medium" for anything
+          in between. Pick the smallest scope that still covers the
+          question — a wider scope returns more chunks, which costs more
+          context and reading time, not just more thoroughness.`
+        ),
     }),
-    execute: async ({ query, keyword }) => {
-      // The model writes query/keyword itself as part of calling this tool
-      // (see the schema above) — there's no separate rewrite step the way
-      // rag-lab's local-search has one, so this is the only place to see
+    execute: async ({ query, keyword, scope }) => {
+      // The model writes query/keyword/scope itself as part of calling this
+      // tool (see the schema above) — there's no separate rewrite step the
+      // way rag-lab's local-search has one, so this is the only place to see
       // what the model actually generated for a given question.
-      console.log('[mentor] answerQuestion query rewrite:', { query, keyword });
+      console.log('[mentor] answerQuestion query rewrite:', { query, keyword, scope });
       // Structured, not a formatted string — same reasoning as
       // search-contacts-tool.ts: the chat UI reads this same output to
       // render the retrieved chunks (see mentor-chat-client.tsx's
@@ -54,7 +67,7 @@ export function createAnswerQuestionTool(messages: ModelMessage[]) {
       // pre-formatted into one big string.
       const startedAt = Date.now();
       try {
-        const chunks = await retrieveRelatedChunks({ query, keyword });
+        const chunks = await retrieveRelatedChunks({ query, keyword, scope });
         const retrievedInMs = Date.now() - startedAt;
         if (chunks.length === 0) {
           return {

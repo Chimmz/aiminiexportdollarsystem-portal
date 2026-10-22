@@ -31,7 +31,8 @@ function redactSearchContactsOutputs(messages: ModelMessage[]): ModelMessage[] {
     return {
       ...message,
       content: message.content.map((part) => {
-        if (part.type !== 'tool-result' || part.toolName !== 'searchContacts') return part;
+        if (part.type !== 'tool-result' || part.toolName !== 'searchContacts')
+          return part;
         if (part.output.type !== 'json') return part;
 
         const value = part.output.value as { contacts?: unknown; [key: string]: unknown };
@@ -42,7 +43,10 @@ function redactSearchContactsOutputs(messages: ModelMessage[]): ModelMessage[] {
           ...part,
           output: {
             ...part.output,
-            value: { ...rest, contacts: summarizeContactsForModel(contacts) } as unknown as JSONValue,
+            value: {
+              ...rest,
+              contacts: summarizeContactsForModel(contacts),
+            } as unknown as JSONValue,
           },
         };
       }),

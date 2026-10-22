@@ -1,11 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as retrieval from '@/lib/rag/retrieval';
 import { createServiceClient } from '@/lib/supabase/service';
-import { toRankedChunks, type RetrievedChunk, type ChunkRow } from '@/lib/utils/chunks-utils';
-
-// A wider pool is pulled from each side before fusing down to `limit`, so
-// RRF has real rank signal to work with on both lists.
-const POOL = 25;
+import {
+  toRankedChunks,
+  SCOPE_RETRIEVAL,
+  type RetrievedChunk,
+  type ChunkRow,
+  type QuestionScope,
+} from '@/lib/utils/chunks-utils';
 
 // Chunks ranked by cosine similarity via Supabase's HNSW-indexed RPC (see
 // schema.sql's kb_chunks_embedding_idx / match_kb_chunks_all) — the
@@ -50,22 +52,25 @@ export interface RetrieveRelatedChunksParams {
   // Literal keyword terms for BM25-style keyword search, or null when the
   // question is too abstract for keyword matching to help.
   keyword: string | null;
-  limit?: number;
+  // How wide a net this question needs -- see SCOPE_RETRIEVAL for the
+  // pool/limit each scope maps to.
+  scope?: QuestionScope;
 }
 
 export async function retrieveRelatedChunks({
   query,
   keyword,
-  limit = 8,
+  scope = 'medium',
 }: RetrieveRelatedChunksParams): Promise<RetrievedChunk[]> {
   const supabase = createServiceClient();
+  const { pool, limit } = SCOPE_RETRIEVAL[scope];
 
   const [keywordResults, semanticResults] = await Promise.all([
     retrieval.keywordSearch<RetrievedChunk>(() =>
-      getDBChunksByKeyword(supabase, keyword?.trim() || query, POOL)
+      getDBChunksByKeyword(supabase, keyword?.trim() || query, pool)
     ),
     retrieval.semanticSearch<RetrievedChunk>(query, (queryEmbedding) =>
-      getDBChunksBySimilarity(supabase, queryEmbedding, POOL)
+      getDBChunksBySimilarity(supabase, queryEmbedding, pool)
     ),
   ]);
 
