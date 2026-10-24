@@ -7,6 +7,7 @@ import { motion } from 'motion/react';
 import { HomeIcon, UploadIcon, FolderIcon, FlaskConicalIcon } from 'lucide-react';
 import { AISparkle } from '@/components/ui/ai-sparkle';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { useMentorChatState } from '@/contexts/mentor-context';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -73,19 +74,19 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
   const displayName = displayNameFor(user);
   const initials = initialsFor(user);
   const { setOpen } = useSidebar();
-  const isMentorRoute = pathname.startsWith('/dashboard/mentor');
+  const { hasMessages } = useMentorChatState();
 
-  // The mentor page gets its own controls rail (mentor-controls-rail.tsx,
-  // with its own toggle) competing for the same horizontal space this nav
-  // sidebar wants -- icon-collapsing it on entry gives that rail room
-  // without the user having to remember to do it themselves, same spirit
-  // as collapsible="icon" below. Only auto-drives it on route change, so a
-  // manual re-expand (the header trigger below, or Cmd/Ctrl+B) while still
-  // on the mentor page isn't immediately fought.
+  // Collapse to icon-only once the mentor conversation actually has
+  // messages (not just "on the mentor route" -- the empty-state hero
+  // keeps the full nav, since there's nothing competing for space yet),
+  // expand back once it's empty again (new chat, or navigating away,
+  // where useMentorChatState's default of false takes over). hasMessages
+  // is the only thing this depends on, deliberately -- see the
+  // eslint-disable below for why setOpen itself can't also be a dep.
   useEffect(() => {
-    setOpen(!isMentorRoute);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setOpen's own identity changes every time `open` does (it's useCallback'd on [setOpenProp, open] in ui/sidebar.tsx), so listing it here would re-fire this effect on every toggle and immediately snap any manual expand/collapse back to the route default. Only a route change should drive this.
-  }, [isMentorRoute]);
+    setOpen(!hasMessages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setOpen's own identity changes every time `open` does (it's useCallback'd on [setOpenProp, open] in ui/sidebar.tsx), so listing it here would re-fire this effect on every toggle and immediately snap any manual expand/collapse back to the hasMessages-driven default. Only hasMessages changing should drive this.
+  }, [hasMessages]);
 
   const renderNavItem = (item: NavItem) => {
     const isActive = pathname === item.href;
@@ -112,8 +113,11 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
           // default justify-start, the icon sits left-aligned with empty
           // space on its right instead of centered. Forcing justify-center
           // directly is what actually centers it, rather than depending on
-          // padding/icon-size arithmetic lining up.
-          className="relative group-data-[collapsible=icon]:justify-center"
+          // padding/icon-size arithmetic lining up. h-11 trims the lg
+          // size's own fixed h-12 down slightly when expanded -- harmless
+          // when collapsed too, since size-8! (also !important) wins there
+          // regardless.
+          className="relative h-11 group-data-[collapsible=icon]:justify-center"
         >
           <Link href={item.href}>
             {isActive && (

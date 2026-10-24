@@ -32,14 +32,16 @@ const ProfileFactOperation = z.object({
     .string()
     .describe(
       `A short, consistent key for what kind of fact this is, e.g.
-        "product", "location", "business_name", "primary_market",
-        "experience_level", "preferred_contact_channel". Always "product"
-        for whatever they've settled on exporting, even when they're
-        replacing an earlier choice rather than deciding for the first
-        time. Reuse the exact same factType across turns and conversations
-        for the same kind of fact instead of inventing new wording each
-        time -- that's what lets "update" find and replace the old value
-        rather than create a duplicate.`
+        "location", "business_name", "primary_market", "experience_level",
+        "preferred_contact_channel" -- loose, user-level info that doesn't
+        belong to a specific step. Never "product": what they're exporting
+        is already captured by setup_progress's small_decide_product /
+        large_decide_product step (its detail field), so recording it here
+        too would just be the same fact living in two places that can
+        drift out of sync. Reuse the exact same factType across turns and
+        conversations for the same kind of fact instead of inventing new
+        wording each time -- that's what lets "update" find and replace
+        the old value rather than create a duplicate.`
     ),
   factValue: z
     .string()
@@ -119,7 +121,7 @@ async function applyOperation(
   });
 }
 
-// Needs userId (unlike answer-question-tool.ts/search-contacts-tool.ts,
+// Needs userId (unlike search-kb-tool.ts/search-contacts-tool.ts,
 // which are user-agnostic) since every write here is scoped to one user's
 // rows.
 export function createManageMemoryTool(userId: string) {

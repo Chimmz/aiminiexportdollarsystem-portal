@@ -36,7 +36,7 @@ const CONTACT_TYPE_META: Record<ContactType, { icon: LucideIcon; label: string }
 // searchContacts tool's output -- the carousel stays the main,
 // always-visible result, same as before. This is the technical detail
 // around it: what was actually searched and which directories it came
-// from, collapsed by default, same pattern as AnswerChunksPanel and
+// from, collapsed by default, same pattern as SearchKbPanel and
 // MemoryUpdatesPanel.
 export function ContactSearchPanel({
   query,

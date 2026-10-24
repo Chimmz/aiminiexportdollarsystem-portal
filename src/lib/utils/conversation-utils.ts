@@ -9,7 +9,7 @@ import type { ModelMessage } from 'ai';
 // dropped entirely, same as role: 'system'.
 //
 // Shared by any tool factory that needs the conversation so far — see
-// lib/ai/tools/answer-question-tool.ts and search-contacts-tool.ts.
+// lib/ai/tools/search-kb-tool.ts and search-contacts-tool.ts.
 export function extractTextHistory(messages: ModelMessage[]): string {
   return messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')

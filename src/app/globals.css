@@ -1,10 +1,10 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 /* Required for @streamdown/math (KaTeX) to render correctly — without
    this, Eva's math blocks would output the right KaTeX markup but with no
    actual math styling (spacing, fraction bars, etc. all come from here). */
-@import "katex/dist/katex.min.css";
+@import 'katex/dist/katex.min.css';
 
 /* Switches Tailwind's dark: variant to require a .dark ancestor class instead
    of following OS prefers-color-scheme. Nothing in this app ever adds .dark,
@@ -37,13 +37,15 @@
 
   --accent-gold: #a8871f;
 
-  --shadow-soft: 0 2px 4px rgba(28, 27, 25, 0.04), 0 16px 40px -16px rgba(28, 27, 25, 0.14);
+  --shadow-soft:
+    0 2px 4px rgba(28, 27, 25, 0.04), 0 16px 40px -16px rgba(28, 27, 25, 0.14);
 
   /* Popover-family surfaces (dropdown/select/hover-card content) — a huge,
      very faint, widely-spread shadow so the surface reads as "floating"
      rather than boxed, kept clean by a tight low-opacity contact shadow
      plus a crisp 1px ring (applied alongside this, not inside it). */
-  --shadow-popover: 0 2px 6px rgba(28, 27, 25, 0.03), 0 40px 80px -20px rgba(28, 27, 25, 0.16);
+  --shadow-popover:
+    0 2px 6px rgba(28, 27, 25, 0.03), 0 40px 80px -20px rgba(28, 27, 25, 0.16);
 
   /* shadcn structural tokens below this line — added by `shadcn init`, kept
      as neutral utility tones (not brand colors) except where tied back to
@@ -216,12 +218,44 @@ h6 {
      layer, which beats this base-layer rule on specificity — those were
      changed directly to cursor-pointer instead of fighting that here. */
   button:not(:disabled),
-  [role="button"]:not([aria-disabled="true"]),
-  [role="tab"]:not([aria-disabled="true"]),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab']:not([aria-disabled='true']),
   a[href],
   label[for],
   summary {
     cursor: pointer;
+  }
+}
+
+/* Dual counter-rotating rings -- the LLM "thinking" loader (ui/loader.tsx),
+   not the generic Spinner (a single rotating ring icon). Scaled down from
+   a 60x25 reference to fit next to a small chat avatar; border reads via
+   currentColor, so the component controls its tone with a text-* class
+   rather than this rule hardcoding one. */
+.loader-rings {
+  width: 25px;
+  height: 10px;
+  border: 2px solid var(--primary);
+  box-sizing: border-box;
+  border-radius: 50%;
+  display: grid;
+  animation: loader-rings-spin 2s infinite linear;
+}
+.loader-rings::before,
+.loader-rings::after {
+  content: '';
+  grid-area: 1/1;
+  border: inherit;
+  border-radius: 50%;
+  animation: inherit;
+  animation-duration: 1s;
+}
+.loader-rings::after {
+  --loader-rings-dir: -1;
+}
+@keyframes loader-rings-spin {
+  100% {
+    transform: rotate(calc(var(--loader-rings-dir, 1) * 1turn));
   }
 }
 

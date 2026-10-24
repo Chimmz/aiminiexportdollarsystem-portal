@@ -11,7 +11,7 @@ import { extractTextHistory } from '@/lib/utils/conversation-utils';
 // of that exists, only that this tool answers export questions from real
 // training material.
 
-export function createAnswerQuestionTool(messages: ModelMessage[]) {
+export function createSearchKbTool(messages: ModelMessage[]) {
   const conversationHistory = extractTextHistory(messages);
   void conversationHistory;
 
@@ -19,9 +19,12 @@ export function createAnswerQuestionTool(messages: ModelMessage[]) {
     description: `Look up information from the export-business training knowledge
       base to help answer the user's question — sourcing, pricing, buyers,
       shipping, documentation, processing or packaging a specific product,
-      regulations, or any other export-related topic. Call this before
-      answering any export question so the answer is grounded in real
-      training material instead of guessed.`,
+      collecting/receiving payment, regulations, or any other export-related
+      topic. Call this before answering any export question so the answer is
+      grounded in real training material instead of guessed, even for a
+      question that sounds like common knowledge (e.g. "what are my payment
+      options") -- the material has specific, curated guidance on exactly
+      that kind of topic that general knowledge won't reproduce.`,
     inputSchema: z.object({
       query: z.string().describe(
         `A clear, self-contained restatement of what the user wants to know —
@@ -39,10 +42,8 @@ export function createAnswerQuestionTool(messages: ModelMessage[]) {
           null if the question is abstract/conversational and literal keyword
           matching wouldn't help.`
         ),
-      scope: z
-        .enum(['specific', 'medium', 'broad'])
-        .describe(
-          `How wide a net this question needs. "specific" for something
+      scope: z.enum(['specific', 'medium', 'broad']).describe(
+        `How wide a net this question needs. "specific" for something
           narrow and concrete (one product, one step, one number — e.g.
           "what's the bank rate" or "how do I seal a crayfish pack").
           "broad" for an open-ended guide/process question spanning many
@@ -51,18 +52,14 @@ export function createAnswerQuestionTool(messages: ModelMessage[]) {
           in between. Pick the smallest scope that still covers the
           question — a wider scope returns more chunks, which costs more
           context and reading time, not just more thoroughness.`
-        ),
+      ),
     }),
     execute: async ({ query, keyword, scope }) => {
-      // The model writes query/keyword/scope itself as part of calling this
-      // tool (see the schema above) — there's no separate rewrite step the
-      // way rag-lab's local-search has one, so this is the only place to see
-      // what the model actually generated for a given question.
-      console.log('[mentor] answerQuestion query rewrite:', { query, keyword, scope });
+      console.log('[mentor] searchKb query rewrite:', { query, keyword, scope });
       // Structured, not a formatted string — same reasoning as
       // search-contacts-tool.ts: the chat UI reads this same output to
       // render the retrieved chunks (see mentor-chat-client.tsx's
-      // 'tool-answerQuestion' case and tools-ui/answer-chunks-panel.tsx),
+      // 'tool-searchKb' case and tools-ui/search-kb-panel.tsx),
       // and the model reads the JSON directly just fine without needing it
       // pre-formatted into one big string.
       const startedAt = Date.now();
@@ -78,7 +75,7 @@ export function createAnswerQuestionTool(messages: ModelMessage[]) {
         }
         return { chunks, retrievedInMs };
       } catch (err) {
-        console.error('[mentor] answerQuestion tool failed:', err);
+        console.error('[mentor] searchKb tool failed:', err);
         return {
           chunks: [],
           retrievedInMs: Date.now() - startedAt,

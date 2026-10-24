@@ -52,7 +52,7 @@ export const MessageContent = ({
   <div
     className={cn(
       'is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm',
-      'group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-primary/10 group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground',
+      'group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-primary/20 group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground',
       'group-[.is-assistant]:text-foreground',
       className
     )}
@@ -305,11 +305,26 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
+// Eva never has a legitimate reason to render an inline markdown image --
+// every real visual in this chat goes through a dedicated tool-UI panel
+// (MediaGalleryPanel, ContactsCarousel, etc.), never through prose. Verified
+// live that the system prompt explicitly forbidding a markdown image tag
+// isn't 100% reliable on its own (gpt-4o-mini still wrote one in some
+// runs after searchMedia), so this renders nothing for any ![...](...) the
+// model writes anyway, regardless of what URL it points to -- a
+// deterministic backstop at the render layer instead of relying on
+// prompt compliance for something with zero legitimate use case to begin
+// with.
+const streamdownComponents: MessageResponseProps['components'] = {
+  img: () => null,
+};
+
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, components, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn('size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0', className)}
       plugins={streamdownPlugins}
+      components={{ ...streamdownComponents, ...components }}
       {...props}
     />
   ),

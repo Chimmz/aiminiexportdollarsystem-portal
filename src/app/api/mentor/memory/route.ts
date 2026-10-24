@@ -14,6 +14,12 @@ import {
 // price-quotes/route.ts: there's no sensible signed-out behavior for any
 // of these.
 
+const AddFactSchema = z.object({
+  factType: z.string().trim().min(1).max(60),
+  factValue: z.string().trim().min(1).max(500),
+});
+const DeleteFactSchema = z.object({ factType: z.string().trim().min(1) });
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) {
@@ -28,11 +34,6 @@ export async function GET() {
     return NextResponse.json({ error: 'Failed to load memory' }, { status: 500 });
   }
 }
-
-const AddFactSchema = z.object({
-  factType: z.string().trim().min(1).max(60),
-  factValue: z.string().trim().min(1).max(500),
-});
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();
@@ -61,8 +62,6 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true });
 }
-
-const DeleteFactSchema = z.object({ factType: z.string().trim().min(1) });
 
 export async function DELETE(req: Request) {
   const user = await getCurrentUser();

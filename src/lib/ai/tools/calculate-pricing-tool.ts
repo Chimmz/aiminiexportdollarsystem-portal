@@ -1,6 +1,6 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { getUsdToNgnRate } from '@/lib/actions/fx-actions';
+import { getFxRates } from '@/lib/actions/fx-actions';
 
 // Unlike every other tool here, the actual math isn't computed server-side
 // at all -- this just opens an interactive calculator (see
@@ -33,9 +33,13 @@ export function createCalculatePricingTool() {
         ),
     }),
     execute: async ({ product }) => {
-      const { bankRate, asOf, isFallback } = await getUsdToNgnRate();
-      console.log('[mentor] calculatePricing call:', { product, bankRate, asOf, isFallback });
-      return { product, bankRate, asOf, isFallback };
+      // Only the bank-rate side -- this calculator is specifically the
+      // naira-to-dollar quoting step (divide by bank rate, per the
+      // course material), not the withdrawal-side black-market
+      // conversion, so there's nothing for it to do with the other rate.
+      const { bank } = await getFxRates();
+      console.log('[mentor] calculatePricing call:', { product, ...bank });
+      return { product, bankRate: bank.rate, asOf: bank.asOf, isFallback: bank.isFallback };
     },
   });
 }

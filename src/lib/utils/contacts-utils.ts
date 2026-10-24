@@ -43,9 +43,10 @@ function matchesAny(fields: (string | null)[], needle: string): boolean {
 
 // A row matches if ANY requested location matches ANY of its location
 // fields -- "Europe" arrives here as every individual European country
-// the model picked out, not as one term, so this is an OR across the
-// whole array, not an AND. Used by contacts-actions.ts to filter rows in
-// JS after the DB-side text search has already narrowed things down.
+// country-utils.ts's resolveLocations expanded it into, not as one term,
+// so this is an OR across the whole array, not an AND. Used by
+// contacts-actions.ts to filter rows in JS after the DB-side text search
+// has already narrowed things down.
 export function matchesAnyLocation(fields: (string | null)[], locations: string[] | null): boolean {
   if (!locations || locations.length === 0) return true;
   return locations.some((loc) => matchesAny(fields, loc));

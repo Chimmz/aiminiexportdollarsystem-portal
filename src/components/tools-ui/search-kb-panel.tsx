@@ -12,7 +12,7 @@ import { Fragment } from 'react';
 import type { RetrievedChunk } from '@/lib/utils/chunks-utils';
 
 // How much of a chunk's content to show, not how much the model got — the
-// tool still hands the model the full excerpt (see answer-question-tool.ts)
+// tool still hands the model the full excerpt (see search-kb-tool.ts)
 // for real grounding. This is only the on-screen preview, deliberately cut
 // short: this is the course's paid training material, and showing full
 // excerpts here would make the whole knowledge base scrapable straight out
@@ -40,15 +40,15 @@ function splitKeywords(keyword: string | null): string[] {
   ];
 }
 
-// Rendered for the answerQuestion tool's output (see
-// mentor-chat-client.tsx's 'tool-answerQuestion' case), the retrieval
-// counterpart to tools-ui/contacts-carousel.tsx. Collapsed by default, same
-// pattern as ai-elements/reasoning.tsx and sources.tsx -- the detail is
-// there to inspect, not something that should visually compete with Eva's
-// actual answer underneath it. Plain paragraphs separated by a Separator
-// rather than per-chunk accordions -- simpler, and sidesteps Radix
-// Accordion's measured-height quirk on short, truncated content.
-export function AnswerChunksPanel({
+// Rendered for the searchKb tool's output (see mentor-chat-client.tsx's
+// 'tool-searchKb' case), the retrieval counterpart to
+// tools-ui/contacts-carousel.tsx. Collapsed by default, same pattern as
+// ai-elements/reasoning.tsx and sources.tsx -- the detail is there to
+// inspect, not something that should visually compete with Eva's actual
+// answer underneath it. Plain paragraphs separated by a Separator rather
+// than per-chunk accordions -- simpler, and sidesteps Radix Accordion's
+// measured-height quirk on short, truncated content.
+export function SearchKbPanel({
   query,
   keyword,
   chunks,

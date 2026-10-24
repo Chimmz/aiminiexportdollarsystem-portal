@@ -112,7 +112,7 @@ export function MemoryUpdatesPanel({
 }: {
   operations: MemoryOperation[];
   ok?: boolean;
-  // Same purpose as AnswerChunksPanel's onToggle -- briefly suppresses the
+  // Same purpose as SearchKbPanel's onToggle -- briefly suppresses the
   // conversation's stick-to-bottom scroll on open/close (see
   // mentor-chat-client.tsx).
   onToggle?: () => void;

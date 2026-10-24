@@ -1,6 +1,12 @@
 'use client';
 
-import { useRef, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import type { ChatStatus } from 'ai';
 import { CornerDownLeftIcon, SquareIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -38,12 +44,21 @@ export function MentorPromptInput({
 }: MentorPromptInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isGenerating = status === 'submitted' || status === 'streaming';
+  // A full pill (rounded-full) looks fine on a short, single-line box, but
+  // elongates oddly once Shift+Enter grows it taller -- rounded-2xl reads
+  // as "still rounded" without the pill's exaggerated curve on a taller
+  // rectangle. Tracked via a plain onChange flag (does the value contain a
+  // literal newline), not textarea height -- that's a more literal match
+  // for "just rounded once a new line's been entered" and doesn't need a
+  // ResizeObserver for something this simple.
+  const [hasNewline, setHasNewline] = useState(false);
 
   const submit = () => {
     const value = textareaRef.current?.value.trim();
     if (!value || isGenerating) return;
     onSubmit(value);
     if (textareaRef.current) textareaRef.current.value = '';
+    setHasNewline(false);
   };
 
   const handleSubmit = (e: FormEvent) => {
@@ -58,6 +73,10 @@ export function MentorPromptInput({
     }
   };
 
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setHasNewline(e.target.value.includes('\n'));
+  };
+
   let icon = <CornerDownLeftIcon className="size-4" />;
   if (status === 'submitted') icon = <Spinner className="size-4" />;
   else if (status === 'streaming') icon = <SquareIcon className="size-4" />;
@@ -66,12 +85,26 @@ export function MentorPromptInput({
   return (
     <form
       onSubmit={handleSubmit}
-      // has-[textarea:focus-visible]:* replicates InputGroup's old
-      // whole-box focus ring -- :has() here has no > combinator, so it
-      // matches the textarea as any descendant, immune to the exact
-      // display:contents mismatch that broke the old component.
+      // has-[textarea:focus-visible]:border-* replicates InputGroup's old
+      // whole-box focus indicator -- :has() here has no > combinator, so
+      // it matches the textarea as any descendant, immune to the exact
+      // display:contents mismatch that broke the old component. Just a
+      // darker border on focus, no ring/glow -- the ring-3 + ring-ring/50
+      // this used to carry read as a thick green outline, more emphasis
+      // than a chat input needs.
+      // transition-[border-color,border-radius] (not transition-colors or
+      // a bare "color") so both the focus border and the pill<->rounded-2xl
+      // shape swap on a new line animate smoothly instead of snapping --
+      // "color" alone is the CSS text-color property, not border-color, so
+      // the focus border was never actually covered by the previous list.
+      // items-end once there's a newline, so the button anchors to the
+      // last line as the box grows upward (the usual chat-input look);
+      // items-center for the common single-line case, where end-aligning
+      // would just look like the button and text don't agree on a
+      // baseline.
       className={cn(
-        'flex w-full items-center gap-2 rounded-md border border-input px-3 py-2 shadow-xs transition-[color,box-shadow] has-[textarea:focus-visible]:border-ring has-[textarea:focus-visible]:ring-3 has-[textarea:focus-visible]:ring-ring/50',
+        'flex w-full gap-2 border border-input px-4 py-2 transition-[border-color,border-radius] duration-200 ease-out has-[textarea:focus-visible]:border-gray-500',
+        hasNewline ? 'items-end rounded-2xl' : 'items-center rounded-full',
         className
       )}
     >
@@ -89,14 +122,27 @@ export function MentorPromptInput({
         name="message"
         placeholder={placeholder}
         onKeyDown={handleKeyDown}
-        className="max-h-48 min-h-9 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none outline-none focus-visible:ring-0"
+        onChange={handleChange}
+        // rounded-none matters here -- the base Textarea component ships
+        // its own rounded-md, which this never used to override. Left
+        // alone, the textarea has its own small corner radius sitting
+        // inside the pill-shaped (rounded-full/rounded-2xl) form around
+        // it -- a real, independent box shape, not just a visual
+        // coincidence, most visible at the right edge where it meets the
+        // gap before the submit button.
+        // transition-[height] animates field-sizing-content's own height
+        // changes (supported in current Chromium/Safari; browsers that
+        // don't honor it just resize instantly, same as before -- no
+        // functional loss either way) so growing to a new line eases
+        // rather than snaps.
+        className="max-h-48 min-h-9 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1.5 shadow-none outline-none transition-[height] duration-150 ease-out focus-visible:ring-0"
       />
       <Button
         type="submit"
         size="icon-sm"
         disabled={isGenerating}
         aria-label={isGenerating ? 'Sending' : 'Send message'}
-        className={cn('shrink-0', submitButtonClassName)}
+        className={cn('shrink-0 rounded-full', submitButtonClassName)}
       >
         {icon}
       </Button>

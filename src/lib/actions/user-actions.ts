@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import type { AccessStatus, CurrentUser, OnboardingSignals } from "@/lib/utils/user-utils";
 
 // The one place that fetches the signed-in user's base profile. Returns
@@ -90,3 +91,23 @@ export const requireCurrentUser = cache(async (): Promise<{
     },
   };
 });
+
+// Lightweight access-tier lookup for a server route that already knows
+// its signed-in user's id (e.g. /api/mentor/chat) -- unlike
+// requireCurrentUser above, this never redirects (a Route Handler has no
+// Server Component boundary to redirect from) and only fetches the one
+// column /api/mentor/chat's token-budget/rate-limit checks actually key
+// on, not the full AccessStatus shape. Service-role, not the cookie-bound
+// client -- same reasoning as memory-actions.ts. Defaults to "expired"
+// when no user_access_status row exists at all: an unrecognized state
+// should never read as "allowed," the same safe-by-default posture as
+// leads/kb_chunks' zero-policy RLS.
+export async function getUserAccessTier(userId: string): Promise<AccessStatus["status"]> {
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from("user_access_status")
+    .select("status")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data?.status as AccessStatus["status"] | undefined) ?? "expired";
+}

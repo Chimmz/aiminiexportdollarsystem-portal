@@ -11,6 +11,7 @@ import {
   type ContactType,
   type ContactCard,
 } from '@/lib/utils/contacts-utils';
+import { resolveLocations } from '@/lib/utils/country-utils';
 
 // The product/service dimension (`query`) is matched with Postgres
 // full-text search against each table's generated `search_tsv` column
@@ -21,16 +22,21 @@ import {
 //
 // Location is still a plain case-insensitive substring filter, applied in
 // JS on whatever the text search already narrowed down to -- it's a much
-// smaller field (a country name, or a Nigerian state/city), country
-// aliases/abbreviations are already resolved by the model before it ever
-// calls the tool (see getKnownCountries below), and location hasn't shown
-// the same word-form problem the product fields did.
+// smaller field (a country name, or a Nigerian state/city). Country
+// aliases, abbreviations, and regions ("USA", "Europe") used to be
+// resolved by the model itself, fed the entire known-countries list in
+// the tool schema to do it -- that cost several hundred prompt tokens on
+// every single turn. searchContacts below now resolves them itself via
+// country-utils.ts's resolveLocations, against the same live
+// getKnownCountries list, before this substring filter ever runs -- see
+// that function's own comment for why a hand-scoped alias/region table
+// (bounded by the ~51 countries actually in this directory, not every
+// country on Earth) is tractable where a general one wouldn't be.
 //
-// `locations` is an array, not a single string, specifically so the model
-// can expand a region like "Europe" into every matching country itself
-// (using the known-countries list it's handed, see getKnownCountries)
-// instead of this file hardcoding a region-to-countries lookup table —
-// a row matches if ANY entry in the array matches.
+// `locations` stays an array, not a single string, because a region like
+// "Europe" still expands into several country entries -- just in code
+// now (resolveLocations) instead of by the model -- a row matches if ANY
+// entry in the array matches.
 
 export interface SearchContactsParams {
   query: string;
@@ -45,12 +51,11 @@ export interface SearchContactsParams {
 // model the same list it already saw last time.
 let cachedCountries: string[] | null = null;
 
-// Fed into search-contacts-tool.ts's location field description so the
-// model resolves an alias or abbreviation (e.g. "USA", "UK", "Holland")
-// into the exact value actually stored in the DB before it ever calls the
-// tool, using its own knowledge of country names rather than a hardcoded
-// alias table here that would only ever cover whatever aliases someone
-// thought to add.
+// The live list resolveLocations (contacts-utils.ts) resolves a region
+// against (which of these known countries actually falls in "Europe")
+// and validates an alias's canonical target against (so a stale alias
+// pointing at a country no longer in the directory never gets returned).
+// No longer fed into the tool schema itself -- see search-contacts-tool.ts.
 export async function getKnownCountries(): Promise<string[]> {
   if (cachedCountries) return cachedCountries;
 
@@ -252,12 +257,17 @@ export async function searchContacts({
   contactTypes,
   limit,
 }: SearchContactsParams): Promise<SearchContactsResult> {
-  const exact = await runSearch(query, locations, contactTypes, limit);
+  // Resolved once, up front, against the real live country list -- every
+  // search attempt below (exact, then the relaxation cascade) works off
+  // this resolved array, never the model's raw wording.
+  const resolvedLocations = resolveLocations(locations, await getKnownCountries());
+
+  const exact = await runSearch(query, resolvedLocations, contactTypes, limit);
   if (exact.length > 0) {
     return { contacts: exact, relaxedLocation: false, relaxedContactTypes: false };
   }
 
-  const hasLocations = Boolean(locations && locations.length > 0);
+  const hasLocations = Boolean(resolvedLocations && resolvedLocations.length > 0);
   if (hasLocations) {
     const withoutLocation = await runSearch(query, null, contactTypes, limit);
     if (withoutLocation.length > 0) {

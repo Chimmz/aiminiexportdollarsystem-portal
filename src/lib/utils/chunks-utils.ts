@@ -27,7 +27,7 @@ export function toRankedChunks(rows: ChunkRow[]): retrieval.RankedResult<Retriev
 }
 
 // How wide a net a question needs -- the model classifies each call to
-// answerQuestionTool into one of these rather than picking a raw chunk
+// searchKbTool into one of these rather than picking a raw chunk
 // count itself, so it only ever has to reason about scope, not tune a
 // number. `pool` is how many candidates each of keyword/semantic search
 // pulls before RRF fusion, `limit` is how many survive the fusion cut.

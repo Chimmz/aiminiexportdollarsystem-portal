@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Brain,
-  Eraser,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   Plus,
+  Trash2,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -26,6 +26,7 @@ import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import type { ProfileFact } from '@/lib/utils/memory-utils';
+import { useMentorChatState } from '@/contexts/mentor-context';
 
 // The mentor page's controls rail -- sits left of the chat column, with
 // its own toggle in its own top bar below (not inside the width-collapsing
@@ -49,35 +50,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RailAction({
-  icon: Icon,
-  label,
-  description,
-  onClick,
-  disabled,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  description: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex w-full flex-col items-start gap-2 rounded-xl border border-border bg-background p-3.5 text-left transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:pointer-events-none disabled:opacity-50"
-    >
-      <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="size-4" />
-      </span>
-      <span className="text-sm font-medium text-foreground">{label}</span>
-      <span className="text-xs text-muted-foreground">{description}</span>
-    </button>
-  );
-}
-
 interface MentorControlsRailProps {
   onClearChat: () => void;
   hasMessages: boolean;
@@ -95,6 +67,7 @@ export function MentorControlsRail({
   const [busyFactType, setBusyFactType] = useState<string | null>(null);
   const [clearChatOpen, setClearChatOpen] = useState(false);
   const [clearMemoryOpen, setClearMemoryOpen] = useState(false);
+  const { memoryVersion } = useMentorChatState();
 
   async function loadFacts() {
     try {
@@ -109,12 +82,13 @@ export function MentorControlsRail({
   }
 
   useEffect(() => {
-    // Standard fetch-on-mount — setFacts above only ever runs after an
+    // Fetch on mount, then again every time memoryVersion is bumped (see
+    // mentor-context.tsx) -- setFacts above only ever runs after an
     // awaited fetch, never synchronously inside this effect's own tick
     // (same pattern/reasoning as rag-lab-client.tsx's loadRuns/loadSources).
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async, not synchronous; the rule can't see past the await
     loadFacts();
-  }, []);
+  }, [memoryVersion]);
 
   const handleDelete = async (factType: string) => {
     setBusyFactType(factType);
@@ -175,7 +149,7 @@ export function MentorControlsRail({
   return (
     <aside
       className={cn(
-        'hidden shrink-0 flex-col overflow-hidden border-r border-border bg-background-subtle40 transition-[width] duration-200 ease-linear lg:flex',
+        'hidden shrink-0 flex-col overflow-hidden border-r border-border bg-background-subtle/40 transition-[width] duration-200 ease-linear lg:flex',
         open ? 'w-80' : 'w-12'
       )}
     >
@@ -215,20 +189,22 @@ export function MentorControlsRail({
           <SectionLabel>Chat</SectionLabel>
           <Dialog open={clearChatOpen} onOpenChange={setClearChatOpen}>
             <DialogTrigger asChild>
-              <RailAction
-                icon={Eraser}
-                label="Clear chat"
-                description="Start a fresh conversation with Eva."
+              <button
+                type="button"
                 onClick={() => setClearChatOpen(true)}
                 disabled={!hasMessages}
-              />
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-white px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+              >
+                <Trash2 className="size-4" />
+                Clear chats
+              </button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Clear this chat?</DialogTitle>
                 <DialogDescription>
-                  This only clears what&rsquo;s on screen — Eva still remembers your facts
-                  and progress below.
+                  This only clears what&rsquo;s on screen. Eva still remembers your
+                  memories and progress.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -268,8 +244,9 @@ export function MentorControlsRail({
                   <DialogHeader>
                     <DialogTitle>Clear everything Eva remembers?</DialogTitle>
                     <DialogDescription>
-                      This deletes all {facts.length} saved fact
-                      {facts.length === 1 ? '' : 's'}. It can&rsquo;t be undone.
+                      This deletes all {facts.length} saved{' '}
+                      {facts.length === 1 ? 'memory' : 'memories'}. It can&rsquo;t be
+                      undone.
                     </DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
@@ -360,7 +337,7 @@ export function MentorControlsRail({
               className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
             >
               <Plus className="size-3.5" />
-              Add a fact
+              Add a memory
             </button>
           )}
         </div>

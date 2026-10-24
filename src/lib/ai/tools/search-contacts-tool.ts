@@ -6,11 +6,7 @@ import {
   MAX_CONTACT_LIMIT,
   type ContactType,
 } from '@/lib/utils/contacts-utils';
-import {
-  searchContacts,
-  getKnownCountries,
-  getKnownProductVocabulary,
-} from '@/lib/actions/contacts-actions';
+import { searchContacts, getKnownProductVocabulary } from '@/lib/actions/contacts-actions';
 import { extractTextHistory } from '@/lib/utils/conversation-utils';
 import { queryRewriteModel } from '@/lib/ai/models';
 
@@ -77,7 +73,7 @@ async function regroundQueryFromHistory(
   }
 }
 
-// Same factory shape as answer-question-tool.ts. Unlike that tool,
+// Same factory shape as search-kb-tool.ts. Unlike that tool,
 // conversationHistory here is actually logged (not left wired-but-unused)
 // because this tool's whole reason for taking it is to make a specific
 // failure mode visible: "I want to export crayfish to Canada" followed by
@@ -87,16 +83,17 @@ async function regroundQueryFromHistory(
 // arguments, so the real fix is the query/location descriptions below
 // telling it to do that — this log is how to confirm it actually did.
 //
-// Async now because the locations field's description needs the real
-// country list (see getKnownCountries) so the model can resolve "USA" ->
-// "United States" itself before calling the tool, instead of a bare
-// substring match failing on every alias/abbreviation nobody hardcoded.
-// The same list is also how it expands a region like "Europe" into every
-// matching country, since that's an array of countries, not a lookup this
-// file hardcodes (see the locations field description below).
-export async function createSearchContactsTool(messages: ModelMessage[]) {
+// Not async anymore -- country alias/abbreviation/region resolution
+// ("USA" -> "United States", "Europe" -> every matching known country)
+// used to require fetching the full country list here just to spell it
+// out in the locations field's description below, costing several
+// hundred tokens on every single turn whether or not a location was ever
+// mentioned. It's resolved server-side now instead, in
+// contacts-actions.ts's searchContacts (see contacts-utils.ts's
+// resolveLocations) against that same live list -- the model just passes
+// the user's own wording through unchanged.
+export function createSearchContactsTool(messages: ModelMessage[]) {
   const conversationHistory = extractTextHistory(messages);
-  const knownCountries = await getKnownCountries();
 
   return tool({
     description: `Look up real contacts from the course's bonus contact
@@ -121,47 +118,26 @@ export async function createSearchContactsTool(messages: ModelMessage[]) {
         .array(z.string())
         .nullable()
         .describe(
-          `One or more countries (for international buyers) or Nigerian
-          states/cities (for local suppliers, logistics/packaging, or
-          documentation providers). Same rule as query -- resolve it from
-          earlier in the conversation if it's not in the latest message.
-          Null or an empty array if no location applies. Never invent or
-          default to a location the user didn't actually name, directly or
-          earlier in the conversation -- a question like "who buys my
-          products abroad?" names no country, so locations should be null
-          there (searching every country), not a guess like the United
-          States. Guessing a location here is worse than searching
-          everything: it silently narrows the search to one wrong place and
-          then reports back as if that place meant something.
+          `Countries (for international buyers) or Nigerian states/cities
+          (for local suppliers, logistics/packaging, or documentation
+          providers). Same rule as query -- resolve it from earlier in the
+          conversation if it's not in the latest message. Null or an empty
+          array if no location applies -- never invent or default to one
+          the user didn't actually name; a question like "who buys my
+          products abroad?" names no country, so this should be null
+          (searching every country), not a guess.
+
+          Pass the user's own wording straight through, including an
+          abbreviation, alias, or a region like "Europe" or "Middle East"
+          -- resolving that to the exact matching country or countries
+          happens on the server, not here.
 
           local_suppliers, logistics_packaging, and documentation are
           already exclusively Nigerian directories -- every row in them is
           already in Nigeria, there's no row literally tagged "Nigeria".
-          So never pass "Nigeria" itself as a location for those. If the
-          user just says "in Nigeria" or names no specific place, leave
-          locations null for those directories rather than passing the
-          country name through -- it won't match anything and only makes
-          the search look like it came back empty. Only pass a location
-          for those three when the user names an actual Nigerian state or
-          city, e.g. "Lagos" or "Oron".
-
-          For international buyers specifically, the directory's country
-          values are exactly these, nothing else: ${knownCountries.join(', ')}.
-          If the user names a country by an abbreviation, alias, or informal
-          name, such as "USA", "US", or "America" for "United States", or
-          "UK" for "United Kingdom", resolve it to the exact matching value
-          from that list before calling this tool, don't pass the alias
-          through as-is.
-
-          If the user names a broader region instead of a single country,
-          such as "Europe", "the EU", "Middle East", or "Asia", this array
-          is how you express that: pick out every country from the exact
-          list above that belongs to that region yourself, using your own
-          geography knowledge, and pass each one as its own entry in this
-          array. There is no region-to-countries lookup on the other end of
-          this tool -- if you pass the word "Europe" through as-is, it
-          won't match anything, because no country is literally named
-          "Europe". Expand it here instead.`
+          So never pass "Nigeria" itself as a location for those. Only pass
+          a location for those three when the user names an actual
+          Nigerian state or city, e.g. "Lagos" or "Oron".`
         ),
       contactTypes: z
         .array(z.enum(CONTACT_TYPE_VALUES))
