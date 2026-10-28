@@ -74,14 +74,21 @@ async function regroundQueryFromHistory(
 }
 
 // Same factory shape as search-kb-tool.ts. Unlike that tool,
-// conversationHistory here is actually logged (not left wired-but-unused)
-// because this tool's whole reason for taking it is to make a specific
-// failure mode visible: "I want to export crayfish to Canada" followed by
-// an unqualified "show me 5 contacts that buy from me" needs query/
-// location resolved from the first message, not the second. The model
-// already sees the full conversation when it writes the tool call's
-// arguments, so the real fix is the query/location descriptions below
-// telling it to do that — this log is how to confirm it actually did.
+// conversationHistory here is actually used, two ways: logged, to make a
+// specific failure mode visible ("I want to export crayfish to Canada"
+// followed by an unqualified "show me 5 contacts that buy from me" needs
+// query/location resolved from the first message, not the second -- the
+// query/location descriptions below tell the model to do that, this log is
+// how to confirm it actually did), and passed into regroundQueryFromHistory
+// above, which is a different problem entirely: not "which messages are
+// relevant" but "is this search term too abstract to match anything in the
+// directory," re-deriving a real vocabulary-matching term when it is.
+//
+// `messages` is the working-memory-trimmed set by the time it reaches this
+// factory (see route.ts's buildWorkingMemoryMessages / getTools call), not
+// the full raw conversation -- same bounded recent-window-plus-relevant-
+// older-messages window the main model itself answers from, not a wider
+// one just for this tool.
 //
 // Not async anymore -- country alias/abbreviation/region resolution
 // ("USA" -> "United States", "Europe" -> every matching known country)

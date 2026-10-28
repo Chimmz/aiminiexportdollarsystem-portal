@@ -1,95 +1,110 @@
-"use client";
+'use client';
 
-import { useActionState } from "react";
-import Image from "next/image";
-import { MailCheckIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { FadeIn } from "@/components/motion/fade-in";
-import { sendMagicLink, type SendMagicLinkState } from "./actions";
+import { useActionState } from 'react';
+import Link from 'next/link';
+import { motion } from 'motion/react';
+import {
+  AlertCircleIcon,
+  ArrowRightIcon,
+  Loader2Icon,
+  MailCheckIcon,
+} from 'lucide-react';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group';
+import { FadeIn } from '@/components/motion/fade-in';
+import { sendMagicLink, type SendMagicLinkState } from './actions';
 
-const initialState: SendMagicLinkState = { status: "idle" };
+const initialState: SendMagicLinkState = { status: 'idle' };
 
+// A plain, conventional sign-in gate -- not framed around Eva/the mentor,
+// since this is the entry point for the account as a whole, not just the
+// chat. Keeps the centered layout and soft radial backdrop from the
+// previous pass (a generic "feature zone" treatment also used on the
+// dashboard home and payment-callback pages, see globals.css), just in
+// the app's own brand tokens instead of Eva's AI-specific gradient.
 export default function SignInPage() {
   const [state, action, pending] = useActionState(sendMagicLink, initialState);
+  const isSent = state.status === 'sent';
 
   return (
-    <div className="flex min-h-screen">
-      <div className="relative hidden w-1/2 lg:block">
-        <Image
-          src="/sign-in-hero.jpg"
-          alt=""
-          fill
-          priority
-          sizes="50vw"
-          className="object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" />
-        <div className="relative z-10 flex h-full flex-col justify-end p-12">
-          <FadeIn>
-            <p className="text-sm font-medium text-accent-gold">Welcome back</p>
-            <h1 className="mt-2 max-w-sm text-3xl font-semibold leading-tight text-white">
-              Pick up right where you left off with your export mentor.
-            </h1>
-            <p className="mt-3 max-w-sm text-sm text-white/80">
-              From sourcing to pricing in dollars, your next conversation is one
-              click away.
-            </p>
-          </FadeIn>
-        </div>
-      </div>
+    <div className="relative isolate flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 py-16">
+      <motion.div
+        aria-hidden
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.8, ease: 'easeOut' }}
+        className="pointer-events-none absolute inset-0 -z-10 bg-radial from-primary/15 via-accent-gold/5 to-transparent"
+      />
 
-      <div className="flex w-full flex-col justify-center px-6 py-16 lg:w-1/2">
-        <FadeIn className="mx-auto w-full max-w-sm">
-          <div className="space-y-1.5 text-center lg:text-left">
-            <h2 className="text-xl font-semibold">Sign in</h2>
-            <p className="text-sm text-muted-foreground">
-              Enter the email you paid with — we&apos;ll send you a link to sign in,
-              no password needed.
-            </p>
-          </div>
+      <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
+        <Link href="/" className="text-sm font-semibold leading-relaxed text-foreground">
+          The AI-Powered Mini Export
+          <br />
+          <span className="text-accent-gold">Dollar System</span>
+        </Link>
 
-          <div className="mt-6">
-            {state.status === "sent" ? (
-              <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
-                <MailCheckIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-                <p>
-                  {state.alreadySent ? (
-                    <>
-                      We already sent a link to{" "}
-                      <span className="font-medium">{state.email}</span> — check your
-                      inbox, or wait a minute to request a new one.
-                    </>
-                  ) : (
-                    <>
-                      Check <span className="font-medium">{state.email}</span> for a
-                      sign-in link.
-                    </>
-                  )}
-                </p>
-              </div>
-            ) : (
-              <form action={action} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    required
-                  />
+        <FadeIn delay={0.15} className="space-y-1.5">
+          <h1 className="text-2xl font-semibold">Sign in</h1>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            {isSent
+              ? state.alreadySent
+                ? 'We already sent a link to your email. Check your inbox, or wait a minute to request a new one.'
+                : "We've sent you a link to sign in. Check your inbox to continue."
+              : "Enter the email you paid with and we'll send you a secure link to sign in. No password needed."}
+          </p>
+        </FadeIn>
+
+        <FadeIn delay={0.3} className="w-full">
+          {isSent ? (
+            <div className="flex items-center justify-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-5 py-3 text-sm">
+              <MailCheckIcon className="size-4 shrink-0 text-primary" />
+              <span>
+                Sent to <span className="font-medium">{state.email}</span>
+              </span>
+            </div>
+          ) : (
+            <form action={action} className="w-full space-y-3">
+              <label htmlFor="email" className="sr-only">
+                Email
+              </label>
+              <InputGroup className="h-14 rounded-full px-2 shadow-soft">
+                <InputGroupInput
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  required
+                  className="text-base"
+                />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupButton
+                    type="submit"
+                    disabled={pending}
+                    variant="default"
+                    aria-label="Send sign-in link"
+                    className="size-10 rounded-full active:scale-95"
+                  >
+                    {pending ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <ArrowRightIcon className="size-4" />
+                    )}
+                  </InputGroupButton>
+                </InputGroupAddon>
+              </InputGroup>
+
+              {state.status === 'error' && (
+                <div className="flex items-center justify-center gap-1.5 text-sm text-destructive">
+                  <AlertCircleIcon className="size-4 shrink-0" />
+                  <span>{state.message}</span>
                 </div>
-                {state.status === "error" && (
-                  <p className="text-sm text-destructive">{state.message}</p>
-                )}
-                <Button type="submit" disabled={pending} className="w-full">
-                  {pending ? "Sending..." : "Send sign-in link"}
-                </Button>
-              </form>
-            )}
-          </div>
+              )}
+            </form>
+          )}
         </FadeIn>
       </div>
     </div>

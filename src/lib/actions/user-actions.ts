@@ -2,6 +2,8 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getLifetimeTokenUsage } from "@/lib/actions/token-usage-actions";
+import { TRIAL_TOKEN_BUDGET } from "@/lib/mentor/limits";
 import type { AccessStatus, CurrentUser, OnboardingSignals } from "@/lib/utils/user-utils";
 
 // The one place that fetches the signed-in user's base profile. Returns
@@ -52,10 +54,10 @@ export const requireCurrentUser = cache(async (): Promise<{
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
 
-  const [{ data: accessRow }, { data: currentPeriod }] = await Promise.all([
+  const [{ data: accessRow }, { data: currentPeriod }, trialTokensUsed] = await Promise.all([
     supabase
       .from("user_access_status")
-      .select("status, trial_messages_used, trial_messages_limit, paid_access_until")
+      .select("status, paid_access_until")
       .eq("user_id", user.id)
       .single(),
     supabase
@@ -65,6 +67,7 @@ export const requireCurrentUser = cache(async (): Promise<{
       .lte("starts_at", nowIso)
       .gt("ends_at", nowIso)
       .maybeSingle(),
+    getLifetimeTokenUsage(user.id),
   ]);
 
   if (!accessRow) {
@@ -81,10 +84,10 @@ export const requireCurrentUser = cache(async (): Promise<{
     user,
     accessStatus: {
       status: accessRow.status,
-      trialMessagesUsed: accessRow.trial_messages_used,
-      trialMessagesLimit: accessRow.trial_messages_limit,
       paidAccessUntil: accessRow.paid_access_until,
       currentPlanId: currentPayment?.plan_id ?? null,
+      trialTokensUsed,
+      trialTokenBudget: TRIAL_TOKEN_BUDGET,
     },
     onboarding: {
       hasSentFirstMessage: Boolean(user.activatedAt),

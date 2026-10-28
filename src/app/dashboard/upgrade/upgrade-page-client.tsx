@@ -1,6 +1,8 @@
 'use client';
 
-import { CheckIcon } from 'lucide-react';
+import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { CheckIcon, Loader2Icon } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Accordion,
@@ -21,11 +23,9 @@ import {
 import { cn } from '@/lib/utils';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
 import { formatNaira } from '@/components/ui/naira-sign';
+import { initiatePlanPurchase } from '@/lib/actions/payments-actions';
 import type { AccessStatus } from '@/lib/utils/user-utils';
 
-// Presentational-first, same as the Home page — no Paystack key or webhook
-// exist yet, so "Upgrade" shows what will happen instead of actually charging.
-//
 // "Current plan" highlighting is driven by accessStatus.currentPlanId — the
 // plan backing whichever access_period is in effect right this moment (see
 // lib/utils/user-utils.ts). Periods stack and can come from different
@@ -76,12 +76,6 @@ const billingFaq = [
 ];
 
 
-function handleUpgradeClick(tierLabel: string) {
-  toast(`Upgrade flow coming soon`, {
-    description: `This will open Paystack checkout for the ${tierLabel} plan once it's connected.`,
-  });
-}
-
 function headerCopyFor(status: AccessStatus['status']) {
   if (status === 'active') {
     return {
@@ -106,6 +100,23 @@ function headerCopyFor(status: AccessStatus['status']) {
 
 export function UpgradePageClient({ accessStatus }: { accessStatus: AccessStatus }) {
   const header = headerCopyFor(accessStatus.status);
+  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+  // Set only when this page was reached via the mentor page's access-limit
+  // bar (see access-limit-bar.tsx's ?from=mentor) -- threaded through to
+  // initiatePlanPurchase so Paystack redirects straight back to the
+  // mentor page instead of the generic Upgrade callback page.
+  const returnTo = useSearchParams().get('from') === 'mentor' ? 'mentor' : undefined;
+
+  async function handleUpgradeClick(planId: string) {
+    setPendingPlanId(planId);
+    const result = await initiatePlanPurchase(planId, returnTo);
+    if ('error' in result) {
+      setPendingPlanId(null);
+      toast('Could not start checkout', { description: result.error });
+      return;
+    }
+    window.location.assign(result.authorizationUrl);
+  }
 
   return (
     <div className="space-y-12 px-8 py-14">
@@ -162,10 +173,17 @@ export function UpgradePageClient({ accessStatus }: { accessStatus: AccessStatus
                     <Button
                       className="w-full rounded-full active:scale-95 transition-transform"
                       variant={tier.bestValue ? 'default' : 'outline'}
-                      disabled={isCurrent}
-                      onClick={() => handleUpgradeClick(tier.label)}
+                      disabled={isCurrent || pendingPlanId !== null}
+                      onClick={() => handleUpgradeClick(tier.id)}
                     >
-                      {isCurrent ? 'Current plan' : `Get ${tier.label.toLowerCase()}`}
+                      {pendingPlanId === tier.id && (
+                        <Loader2Icon className="size-4 animate-spin" />
+                      )}
+                      {isCurrent
+                        ? 'Current plan'
+                        : pendingPlanId === tier.id
+                          ? 'Starting checkout…'
+                          : `Get ${tier.label.toLowerCase()}`}
                     </Button>
                   </CardFooter>
                 </Card>

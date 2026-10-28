@@ -17,6 +17,14 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 // turn -- see that file's comment) -- read by MentorControlsRail so it
 // refetches its memory list right away instead of only on mount.
 //
+// usageVersion: same push mechanism, but for 'refresh-usage' -- written
+// whenever a turn actually recorded token usage (i.e. almost every turn,
+// unlike the conditional memory one). Read by MentorControlsRail to
+// refetch both halves of its Usage section (the line chart's history and
+// the trial donut's lifetime total) the moment new usage exists, rather
+// than polling on a timer for a number that only ever changes right after
+// a turn completes.
+//
 // No other route needs either, and MentorChatClient is the only writer of
 // both, so a single context beats threading props through
 // dashboard/layout.tsx for values only one of its many child routes ever
@@ -26,6 +34,8 @@ interface MentorChatStateValue {
   setHasMessages: (value: boolean) => void;
   memoryVersion: number;
   bumpMemoryVersion: () => void;
+  usageVersion: number;
+  bumpUsageVersion: () => void;
 }
 
 const MentorChatStateContext = createContext<MentorChatStateValue | null>(null);
@@ -33,10 +43,19 @@ const MentorChatStateContext = createContext<MentorChatStateValue | null>(null);
 export function MentorChatStateProvider({ children }: { children: ReactNode }) {
   const [hasMessages, setHasMessages] = useState(false);
   const [memoryVersion, setMemoryVersion] = useState(0);
+  const [usageVersion, setUsageVersion] = useState(0);
   const bumpMemoryVersion = useCallback(() => setMemoryVersion((v) => v + 1), []);
+  const bumpUsageVersion = useCallback(() => setUsageVersion((v) => v + 1), []);
   return (
     <MentorChatStateContext.Provider
-      value={{ hasMessages, setHasMessages, memoryVersion, bumpMemoryVersion }}
+      value={{
+        hasMessages,
+        setHasMessages,
+        memoryVersion,
+        bumpMemoryVersion,
+        usageVersion,
+        bumpUsageVersion,
+      }}
     >
       {children}
     </MentorChatStateContext.Provider>
@@ -56,6 +75,8 @@ export function useMentorChatState(): MentorChatStateValue {
       setHasMessages: () => {},
       memoryVersion: 0,
       bumpMemoryVersion: () => {},
+      usageVersion: 0,
+      bumpUsageVersion: () => {},
     }
   );
 }

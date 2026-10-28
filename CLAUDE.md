@@ -19,7 +19,11 @@ There is no test suite configured yet (no `test` script, no test framework insta
 
 ### This repo is one half of a two-codebase product
 
-This app is the **post-payment member portal only**. A separate, sibling codebase (`mini-export-web`, not in this repo) is the public sales/funnel site — it collects leads, runs Paystack checkout, and writes `leads`/`payments` rows directly into the **same Supabase project** this app uses. This app never runs a payment webhook itself. The handoff: after paying on the sales site, the buyer is sent here to sign in via magic link; `src/app/auth/callback/route.ts` then calls `src/lib/leads/convert-lead.ts`, which finds the matching `leads` row by email, links it to the newly-created `users` row, and creates (unactivated) `access_periods` for any of that lead's unlinked successful payments. Every mutation after that point — users, access, extracted chat memory — happens only from this app.
+**Live URL:** https://aipoweredminiexportdollarsystem.online/ — use this for any environment-aware config (Paystack callback/webhook URLs, auth redirects, CORS, email links), not a placeholder or localhost. Dev still uses `http://localhost:3000`.
+
+This app is the **post-payment member portal only**, for the *initial* purchase. A separate, sibling codebase (`mini-export-web`, not in this repo) is the public sales/funnel site — it collects leads, runs Paystack checkout, and writes `leads`/`payments` rows directly into the **same Supabase project** this app uses; that site's own Paystack webhook is unrelated to this app's. The handoff: after paying on the sales site, the buyer is sent here to sign in via magic link; `src/app/auth/callback/route.ts` then calls `src/lib/leads/convert-lead.ts`, which finds the matching `leads` row by email, links it to the newly-created `users` row, and creates `access_periods` for any of that lead's unlinked successful payments. Every mutation after that point — users, access, extracted chat memory — happens only from this app.
+
+**This app does run its own Paystack webhook** (`src/app/api/webhooks/paystack/route.ts`) — but only for *in-portal* purchases: an already-signed-in member buying/renewing a plan from the dashboard Upgrade page (`src/lib/actions/payments-actions.ts`), which never involves a `leads` row at all (see `supabase/migrations/0013_member_initiated_payments.sql`, which made `payments.lead_id` nullable for exactly this case). Two independent webhooks exist for two independent purchase paths on the same `payments` table — this app's only ever credits payments it created itself (`user_id` set, `lead_id` null); mini-export-web's only ever credits its own (`lead_id` set).
 
 ### Auth: magic link only, no passwords
 
@@ -37,7 +41,7 @@ This app is the **post-payment member portal only**. A separate, sibling codebas
 
 Plans are prepaid, flat-fee access periods (30-day/3-month/6-month), not recurring subscriptions. `access_periods` chain back-to-back and can span different purchased tiers over time — there is **no single "current tier"** in the way a subscription model would have one. What's well-defined instead is "is access active right now, and until when" (the `user_access_status` SQL view) and "which plan backs whatever period is in effect at this exact moment" (`AccessStatus.currentPlanId` in the DAL, resolved via the `access_periods` row where `starts_at <= now() < ends_at`).
 
-Activation (`access_periods.starts_at`/`ends_at`, `users.activated_at`) is deliberately deferred until the user's first mentor message — not "first login." That trigger point doesn't exist yet because the chat itself isn't wired to a backend (see below), so newly-converted access periods sit unactivated until that's built.
+Activation (`access_periods.starts_at`/`ends_at`, `users.activated_at`) is deliberately deferred until the user's first mentor message — not "first login." `src/lib/actions/access-actions.ts` implements this: `activateUserOnFirstMessage()` is called from `/api/mentor/chat`'s route handler (guarded by `!user.activatedAt`, so it's a no-op after the first time) and chains every unactivated period for that user in purchase order; `createAccessPeriodForPayment()` is the other half, called wherever a payment turns `success` (`convert-lead.ts`, `payments-actions.ts`'s `creditPayment`), and decides per-payment whether to insert unactivated (never-activated user — waits for the first message above) or activate immediately chained onto the current period (already-activated user buying/renewing — the "stacks on top" case).
 
 ### Database: two manually-run SQL files, no migration tool
 
@@ -68,4 +72,4 @@ Prefer small, single-purpose files grouped by concern over one file doing everyt
 
 ### Known gaps (intentional, not bugs)
 
-No Paystack webhook in this repo (lives in `mini-export-web`). The Account page's profile-edit form and the "Delete account" button are UI-only (no server action yet — deletion is planned as a soft-delete via `users.deleted_at`, not implemented). The extracted-memory table (`profile_facts`) has no UI or write path yet.
+The Account page's profile-edit form and the "Delete account" button are UI-only (no server action yet — deletion is planned as a soft-delete via `users.deleted_at`, not implemented). The extracted-memory table (`profile_facts`) has no UI or write path yet.

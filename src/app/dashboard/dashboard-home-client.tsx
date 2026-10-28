@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -28,7 +28,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
+import { UsageDonut } from '@/components/charts/usage-donut';
+import { UsageLineChart } from '@/components/charts/usage-line-chart';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { resources } from '@/lib/mock-data/resources';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
@@ -117,6 +118,34 @@ export function DashboardHomeClient({
 }) {
   const router = useRouter();
   const [announcementDismissed, setAnnouncementDismissed] = useState(false);
+  const [usage, setUsage] = useState<{
+    history: { date: string; tokens: number }[];
+    granularity: 'hour' | 'day';
+  } | null>(null);
+
+  // Same /api/mentor/usage route the mentor controls rail already fetches
+  // for its own usage section (see mentor-controls-rail.tsx) -- reused
+  // here rather than a second endpoint, since the underlying data (the
+  // adaptive hour/day token_usage timeline -- see getTokenUsageTimeline)
+  // is identical regardless of which page asks for it. The lifetime
+  // trialTokensUsed field in the same response isn't needed here --
+  // accessStatus's own prop already has it, and this page doesn't stay
+  // open through a live chat turn the way the rail does, so there's no
+  // 'refresh-usage' push to react to, just the one mount fetch.
+  useEffect(() => {
+    fetch('/api/mentor/usage')
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json();
+      })
+      .then((data: { history: { date: string; tokens: number }[]; granularity: 'hour' | 'day' }) =>
+        setUsage({ history: data.history, granularity: data.granularity })
+      )
+      .catch((err) => {
+        console.error('[dashboard] load usage failed:', err);
+        setUsage(null);
+      });
+  }, []);
 
   const handleSuggestionClick = (suggestion: string) => {
     router.push(`/dashboard/mentor?prompt=${encodeURIComponent(suggestion)}`);
@@ -192,20 +221,11 @@ export function DashboardHomeClient({
           </CardHeader>
           <CardContent className="space-y-4">
             {accessStatus.status === 'trial' && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {accessStatus.trialMessagesUsed} of {accessStatus.trialMessagesLimit}{' '}
-                    free messages used
-                  </span>
-                </div>
-                <Progress
-                  value={
-                    (accessStatus.trialMessagesUsed / accessStatus.trialMessagesLimit) *
-                    100
-                  }
-                />
-              </div>
+              <UsageDonut
+                value={accessStatus.trialTokensUsed}
+                max={accessStatus.trialTokenBudget}
+                label="of your free trial used"
+              />
             )}
 
             <Suggestions>
@@ -236,6 +256,23 @@ export function DashboardHomeClient({
           </CardFooter>
         </Card>
       </FadeIn>
+
+      {usage && usage.history.some((point) => point.tokens > 0) && (
+        <FadeIn delay={0.13}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Usage</CardTitle>
+              <CardDescription>
+                Tokens spent talking with Eva,{' '}
+                {usage.granularity === 'hour' ? 'by the hour today' : 'last 14 days'}.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <UsageLineChart data={usage.history} granularity={usage.granularity} />
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
 
       <FadeIn
         delay={0.15}

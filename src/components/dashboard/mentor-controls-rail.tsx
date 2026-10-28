@@ -24,9 +24,18 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
+import { UsageDonut } from '@/components/charts/usage-donut';
+import { UsageLineChart } from '@/components/charts/usage-line-chart';
 import { cn } from '@/lib/utils';
 import type { ProfileFact } from '@/lib/utils/memory-utils';
+import type { AccessStatus } from '@/lib/utils/user-utils';
 import { useMentorChatState } from '@/contexts/mentor-context';
+
+interface MentorUsage {
+  history: { date: string; tokens: number }[];
+  granularity: 'hour' | 'day';
+  trialTokensUsed: number;
+}
 
 // The mentor page's controls rail -- sits left of the chat column, with
 // its own toggle in its own top bar below (not inside the width-collapsing
@@ -53,11 +62,13 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 interface MentorControlsRailProps {
   onClearChat: () => void;
   hasMessages: boolean;
+  accessStatus: AccessStatus;
 }
 
 export function MentorControlsRail({
   onClearChat,
   hasMessages,
+  accessStatus,
 }: MentorControlsRailProps) {
   const [open, setOpen] = useState(true);
   const [facts, setFacts] = useState<ProfileFact[] | null>(null);
@@ -67,7 +78,8 @@ export function MentorControlsRail({
   const [busyFactType, setBusyFactType] = useState<string | null>(null);
   const [clearChatOpen, setClearChatOpen] = useState(false);
   const [clearMemoryOpen, setClearMemoryOpen] = useState(false);
-  const { memoryVersion } = useMentorChatState();
+  const [usage, setUsage] = useState<MentorUsage | null>(null);
+  const { memoryVersion, usageVersion } = useMentorChatState();
 
   async function loadFacts() {
     try {
@@ -89,6 +101,25 @@ export function MentorControlsRail({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async, not synchronous; the rule can't see past the await
     loadFacts();
   }, [memoryVersion]);
+
+  // Fetch on mount, then again every time usageVersion is bumped (see
+  // mentor-context.tsx) -- route.ts pushes that signal right after a turn
+  // actually records new token_usage, so this stays current within one
+  // request/response round trip of real usage existing, rather than
+  // guessing at a polling interval for a number that's otherwise static
+  // between turns.
+  useEffect(() => {
+    fetch('/api/mentor/usage')
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json();
+      })
+      .then((data: MentorUsage) => setUsage(data))
+      .catch((err) => {
+        console.error('[mentor] load usage failed:', err);
+        setUsage(null);
+      });
+  }, [usageVersion]);
 
   const handleDelete = async (factType: string) => {
     setBusyFactType(factType);
@@ -184,6 +215,42 @@ export function MentorControlsRail({
             Manage this conversation and what Eva remembers about you.
           </p>
         </div>
+
+        {/* First section in the rail -- a bit of "under the hood" dashboard
+            feel for a page that's otherwise just a chat window. The donut
+            is synchronous (straight off accessStatus, the same prop the
+            dashboard home card's donut uses, no fetch needed) and only
+            shown for a 'trial' user -- their lifetime trial-budget usage,
+            never the rolling 3h rate-limit window, which isn't something
+            any user (trial or paid) should see visualized here. The line
+            chart is everyone's real 14-day history, fetched separately
+            below since it's the one piece nothing else on this page
+            already has. */}
+        <div className="shrink-0 space-y-3">
+          <SectionLabel>Usage</SectionLabel>
+          {accessStatus.status === 'trial' && (
+            <UsageDonut
+              // usage?.trialTokensUsed is the freshly-refetched number (see
+              // the usageVersion effect above) -- falls back to the
+              // page-load prop only until that first fetch resolves, so
+              // the donut never regresses to a stale value once it has a
+              // real one.
+              value={usage?.trialTokensUsed ?? accessStatus.trialTokensUsed}
+              max={accessStatus.trialTokenBudget}
+              label="of your free trial used"
+            />
+          )}
+          {usage ? (
+            <UsageLineChart data={usage.history} granularity={usage.granularity} />
+          ) : (
+            <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
+              <Spinner className="size-3.5" />
+              Loading usage...
+            </div>
+          )}
+        </div>
+
+        <Separator />
 
         <div className="space-y-2">
           <SectionLabel>Chat</SectionLabel>

@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/service";
+import { createAccessPeriodForPayment } from "@/lib/actions/access-actions";
 
 // Runs once per sign-in, right after the magic-link callback establishes a
 // session — looks for a lead matching this email (written by the separate
@@ -6,17 +7,20 @@ import { createServiceClient } from "@/lib/supabase/service";
 // never has a real user to attach them to) and, if found:
 //   1. Links it to this real user and marks it 'converted', so nurture
 //      emails stop going to someone who's already in.
-//   2. Creates an *unactivated* access_period for every successful payment
-//      on that lead that doesn't have one yet, and backfills
-//      payments.user_id. Runs on every sign-in (not just the first), which
-//      is also how a later repeat purchase while already a member gets
-//      picked up — it doesn't depend on funnel_stage, only on unlinked
-//      successful payments existing.
-// Activation (setting starts_at/ends_at, chaining periods back-to-back) is
-// deliberately NOT done here — that happens the first time this user sends
-// a mentor message, which doesn't exist yet. This function only ever
-// creates unactivated periods; see access_periods' comments in
-// supabase/schema_app.sql for the full activation algorithm.
+//   2. Creates an access_period for every successful payment on that lead
+//      that doesn't have one yet, and backfills payments.user_id. Runs on
+//      every sign-in (not just the first), which is also how a later
+//      repeat purchase while already a member gets picked up — it doesn't
+//      depend on funnel_stage, only on unlinked successful payments
+//      existing.
+// createAccessPeriodForPayment (access-actions.ts) decides unactivated vs.
+// activate-immediately per payment — a first-ever purchase before this
+// user has ever activated stays unactivated until their first mentor
+// message, but a repeat purchase made while already activated (e.g. they
+// bought a second plan on the sales site while mid-membership) chains onto
+// their current period right away instead of silently never activating,
+// since activated_at is already set and nothing would otherwise flip it
+// again.
 export async function convertLeadForUser(userId: string, email: string) {
   const supabase = createServiceClient();
 
@@ -45,20 +49,24 @@ export async function convertLeadForUser(userId: string, email: string) {
 
   if (!unlinkedPayments || unlinkedPayments.length === 0) return;
 
-  const { data: plans } = await supabase.from("plans").select("id, duration_days");
-  const durationByPlanId = new Map((plans ?? []).map((plan) => [plan.id, plan.duration_days]));
+  const { data: plans } = await supabase
+    .from("plans")
+    .select("id, duration_days, grants_ai_access");
+  const planById = new Map((plans ?? []).map((plan) => [plan.id, plan]));
 
   for (const payment of unlinkedPayments) {
-    const durationDays = durationByPlanId.get(payment.plan_id);
-    // Plan was removed/renamed since purchase — shouldn't happen, but skip
-    // rather than guess a duration.
-    if (!durationDays) continue;
+    const plan = planById.get(payment.plan_id);
+    // Plan was removed/renamed since purchase (shouldn't happen, but skip
+    // rather than guess a duration), or it's a base-product purchase (e.g.
+    // 'pdf-guide') that was never meant to grant AI access in the first
+    // place — see migrations/0015's grants_ai_access.
+    if (!plan || !plan.grants_ai_access) continue;
 
     await supabase.from("payments").update({ user_id: userId }).eq("id", payment.id);
-    await supabase.from("access_periods").insert({
-      user_id: userId,
-      payment_id: payment.id,
-      duration_days: durationDays,
+    await createAccessPeriodForPayment({
+      userId,
+      paymentId: payment.id,
+      durationDays: plan.duration_days,
     });
   }
 }

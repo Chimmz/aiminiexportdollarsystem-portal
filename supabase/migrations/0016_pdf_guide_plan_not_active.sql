@@ -1,0 +1,11 @@
+-- Oversight in migrations/0015: the 'pdf-guide' insert set
+-- grants_ai_access and is_recommended explicitly but left is_active off
+-- the column list, so it defaulted to true. is_active isn't just
+-- decorative -- it's what the "plans are publicly readable" RLS policy
+-- gates (`using (is_active)`), i.e. whether a direct client-side query
+-- against `plans` can see the row at all. The guide is never browsed or
+-- self-serve-selected the way the three AI-access tiers are (it's only
+-- ever referenced by id from the sales-site purchase) -- false here keeps
+-- it out of any future public plans listing, the same way grants_ai_access
+-- already keeps it out of the access-period activation path.
+update public.plans set is_active = false where id = 'pdf-guide';

@@ -1,7 +1,6 @@
 import { tool, type ModelMessage } from 'ai';
 import { z } from 'zod';
 import { retrieveRelatedChunks } from '@/lib/actions/chunks-actions';
-import { extractTextHistory } from '@/lib/utils/conversation-utils';
 
 // A high-level, semantic tool surface for the model — it just asks a
 // question and gets back relevant training material. The low-level
@@ -12,8 +11,7 @@ import { extractTextHistory } from '@/lib/utils/conversation-utils';
 // training material.
 
 export function createSearchKbTool(messages: ModelMessage[]) {
-  const conversationHistory = extractTextHistory(messages);
-  void conversationHistory;
+  void messages;
 
   return tool({
     description: `Look up information from the export-business training knowledge

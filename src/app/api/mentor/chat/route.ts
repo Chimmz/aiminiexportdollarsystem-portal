@@ -15,12 +15,16 @@ import { getCurrentUser } from '@/lib/actions/user-actions';
 import { getUserMemory } from '@/lib/actions/memory-actions';
 import {
   clearMentorMessages,
+  getMentorMessages,
   saveMentorMessages,
 } from '@/lib/actions/mentor-messages-actions';
 import { recordTokenUsage } from '@/lib/actions/token-usage-actions';
+import { activateUserOnFirstMessage } from '@/lib/actions/access-actions';
 import { getFxRates } from '@/lib/actions/fx-actions';
 import { buildSystemPrompt } from './config';
 import { checkMentorChatLimits, redactSearchContactsOutputs } from './_utils';
+import { buildWorkingMemoryMessages } from '@/lib/mentor/working-memory';
+import { WORKING_MEMORY_LIMITS } from '@/lib/mentor/limits';
 
 // Matt Pocock's InferUITools trick: map getTools()'s own inferred return
 // type into each tool's { input, output } shape, so every tool part
@@ -38,62 +42,96 @@ type AppTools = InferUITools<Awaited<ReturnType<typeof getTools>>>;
 //
 // 'frontend-action': a signal-only data part with no visual rendering of
 // its own (ConversationMessages never matches it in its parts switch).
-// This route writes one below whenever manageMemory actually saved
-// something mid-turn; mentor-chat-client.tsx's useChat onData watches for
-// it and tells the chat-controls rail -- a tree sibling, not a
-// descendant, see mentor-context.tsx -- to refetch its memory list
-// instead of only loading it once on mount.
+// 'refresh-sidebar' is written whenever manageMemory actually saved
+// something mid-turn; 'refresh-usage' is written whenever this turn
+// recorded real token usage (i.e. almost every turn, unlike the
+// conditional memory one). mentor-chat-client.tsx's useChat onData
+// watches for both and tells the chat-controls rail -- a tree sibling,
+// not a descendant, see mentor-context.tsx -- to refetch memory/usage
+// right away instead of only loading them once on mount.
 export type AppMessage = UIMessage<
   never,
-  { 'frontend-action': 'refresh-sidebar' },
+  { 'frontend-action': 'refresh-sidebar' | 'refresh-usage' },
   AppTools
 >;
 
 export async function POST(req: Request) {
-  const { messages } = (await req.json()) as { messages: AppMessage[] };
+  // The client (mentor-chat-client.tsx's prepareSendMessagesRequest) sends
+  // only the single newest message now, not the whole conversation --
+  // same "client sends the delta, server reconstructs the rest from
+  // storage" pattern saveMentorMessages/onFinish already use on the write
+  // side, now applied to the read side too (mirrors Matt Pocock's own
+  // `[...(chat?.messages ?? []), body.message]`).
+  const { message } = (await req.json()) as { message: AppMessage };
 
-  if (!messages?.length) {
-    return new Response('messages is required', { status: 400 });
+  if (!message) {
+    return new Response('message is required', { status: 400 });
   }
 
-  // fxRates has no dependency on anything else resolved in this handler
-  // (not userId, not the conversation) -- getFxRates() is a daily,
-  // cached value (see fx-actions.ts), so joining it here costs nothing
-  // past a cold start and means today's bank + black-market rates are
-  // ready by the time buildSystemPrompt needs them below, instead of a
-  // dedicated getExchangeRate tool call mid-turn (see config.ts's
-  // EXCHANGE RATE section -- Eva no longer has to call anything to get
-  // these numbers, they're just already in front of her).
-  const [modelMessages, user, fxRates] = await Promise.all([
-    convertToModelMessages(messages),
-    getCurrentUser(),
-    getFxRates(),
-  ]);
-  const userId = user?.id ?? null;
+  const [user, fxRates] = await Promise.all([getCurrentUser(), getFxRates()]);
+
+  if (!user) return new Response('Not signed in', { status: 401 });
+
   const userFirstName = getCurrentUserFirstName(user);
 
   // Blocks outright before the model is ever called -- a trial user over
   // their lifetime token budget, anyone over the rolling-window abuse
   // rate limit, or an expired paid period. See _utils.ts's
   // checkMentorChatLimits for why these are two independent checks, not
-  // one. No check at all for a signed-out caller (userId null) -- there's
-  // no usage to meter against, same reasoning as manageMemory being left
-  // out of the tool set entirely for one.
-  if (userId) {
-    const blocked = await checkMentorChatLimits(userId);
-    if (blocked) return blocked;
-  }
-
-  // Both depend on userId resolved above, so neither can join the
-  // Promise.all above -- getKnownCountries() underneath getTools is
-  // process-cached after the first call, so this adds no real latency
-  // past a cold start.
-  const [userMemory, tools] = await Promise.all([
-    userId ? getUserMemory(userId) : Promise.resolve(null),
-    getTools(modelMessages, userId),
+  // one. Persisted history is fetched in the same round trip, since it
+  // depends on nothing checkMentorChatLimits produces.
+  const [conversationHistory, limitCheck] = await Promise.all([
+    getMentorMessages(user.id),
+    checkMentorChatLimits(user.id),
   ]);
 
-  const systemPrompt = buildSystemPrompt(userFirstName, userMemory, fxRates);
+  if (limitCheck.response) return limitCheck.response;
+
+  const tier = limitCheck.tier;
+
+  // The reconstructed full conversation: everything already persisted for
+  // this user, plus the one new message the client just sent. Every
+  // `messages` reference below (working memory, originalMessages, onFinish's
+  // slice) still means exactly what it meant back when the client itself
+  // sent the whole array -- only where the array comes from changed.
+  const messages: AppMessage[] = [...conversationHistory, message];
+
+  // Working memory (lib/mentor/working-memory.ts): trims that reconstructed
+  // conversation down to its recent window plus whatever older messages are
+  // actually semantically relevant right now, sized by plan tier -- see
+  // WORKING_MEMORY_LIMITS' own comment in limits.ts for the reasoning on
+  // the numbers themselves.
+  const workingMemoryMessages = await buildWorkingMemoryMessages(
+    user.id,
+    WORKING_MEMORY_LIMITS[tier === 'active' ? 'active' : 'trial'],
+    messages
+  );
+  const modelMessages = await convertToModelMessages(workingMemoryMessages);
+
+  // getKnownCountries() underneath getTools is process-cached after the
+  // first call, so this adds no real latency past a cold start.
+  // activateUserOnFirstMessage only does anything the very first time
+  // (user.activatedAt is the guard) -- see access-actions.ts for the full
+  // chaining algorithm it runs then.
+  const [userMemory, tools] = await Promise.all([
+    getUserMemory(user.id),
+    getTools(modelMessages, user.id),
+    user.activatedAt ? Promise.resolve() : activateUserOnFirstMessage(user.id),
+  ]);
+
+  // True for exactly one request ever, per user: activateUserOnFirstMessage
+  // above only sets users.activated_at once it's still null going into
+  // this request, so this read (from the user object fetched before that
+  // write happens) is a clean "is this literally their first message ever"
+  // signal -- false again from their very next message onward, forever.
+  const isFirstEverMessage = !user.activatedAt;
+
+  const systemPrompt = buildSystemPrompt(
+    userFirstName,
+    userMemory,
+    fxRates,
+    isFirstEverMessage
+  );
 
   const result = streamText({
     model: chatModel,
@@ -123,7 +161,7 @@ export async function POST(req: Request) {
     // is merged into it rather than returned directly.
     stream: createUIMessageStream<AppMessage>({
       originalMessages: messages,
-      execute: async ({ writer }) => {
+      async execute({ writer }) {
         writer.merge(toUIMessageStream({ stream: result.stream }));
 
         // result.steps/result.usage both resolve once the full (possibly
@@ -155,7 +193,7 @@ export async function POST(req: Request) {
         // where a turn's token cost is actually going. usage (the turn
         // total) is the sum of every step's own usage below.
         console.log('[mentor] token usage:', {
-          userId,
+          userId: user.id,
           stepCount: steps.length,
           steps: steps.map((step) => ({
             toolCalls: step.toolCalls.map((call) => call?.toolName),
@@ -168,16 +206,16 @@ export async function POST(req: Request) {
           totalTokens: usage.totalTokens,
         });
 
-        if (userId && usage.totalTokens) {
+        if (usage.totalTokens) {
           try {
-            await recordTokenUsage(userId, usage.totalTokens);
+            await recordTokenUsage(user.id, usage.totalTokens);
+            writer.write({ type: 'data-frontend-action', data: 'refresh-usage' });
           } catch (err) {
             console.error('[mentor] record token usage failed:', err);
           }
         }
       },
       onFinish: async ({ messages: finalMessages }) => {
-        if (!userId) return;
         // `messages` (the request body) already includes the user's new
         // message -- it just hasn't been written to the messages table
         // yet, since persistence only happens here, once a reply actually
@@ -186,7 +224,7 @@ export async function POST(req: Request) {
         // the turn this request produced.
         const newMessages = finalMessages.slice(messages.length - 1);
         try {
-          await saveMentorMessages(userId, newMessages);
+          await saveMentorMessages(user.id, newMessages);
         } catch (err) {
           console.error('[mentor] persist messages failed:', err);
         }

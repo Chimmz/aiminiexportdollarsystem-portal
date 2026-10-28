@@ -54,7 +54,7 @@ export function ConversationMessages({
   onSendMessage,
 }: ConversationMessagesProps) {
   return (
-    <Container className="flex flex-col">
+    <Container className="flex flex-col gap-6">
       {messages.map((message) => (
         <div
           key={message.id}
@@ -118,7 +118,6 @@ export function ConversationMessages({
                         key={key}
                         operations={input.operations}
                         ok={output.ok}
-                        onToggle={onPanelToggle}
                       />
                     );
                   }

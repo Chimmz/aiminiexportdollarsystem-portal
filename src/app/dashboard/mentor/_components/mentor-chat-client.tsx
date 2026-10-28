@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScrollElements } from 'use-stick-to-bottom';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { toast } from 'sonner';
@@ -15,23 +15,65 @@ import {
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { Container } from '@/components/layout/container';
 import { MentorPromptInput } from '@/components/mentor/mentor-prompt-input';
+import { AccessLimitBar } from '@/components/mentor/access-limit-bar';
 import { ConversationMessages } from './conversation-messages';
 import { MentorEmptyChat } from './empty-chat';
 import { MentorControlsRail } from '@/components/dashboard/mentor-controls-rail';
 import { useMentorChatState } from '@/contexts/mentor-context';
+import { verifyAndActivatePayment } from '@/lib/actions/payments-actions';
+import { ACCESS_EXPIRED_MESSAGE } from '@/lib/utils/access-messages';
+import { paymentSuccessCopy } from '@/lib/utils/plan-utils';
+import type { AccessStatus } from '@/lib/utils/user-utils';
 import { starterPrompts } from '../config';
 import { isSuggestNextStepsResult, messageHasVisibleContent } from '../_utils';
+
+// Where a message blocked by the access-limit bar (402, see onError below)
+// is stashed so it can be resent after an upgrade. A Paystack checkout is
+// a real navigation away to another domain and back, which wipes useChat's
+// in-memory state entirely -- and a message blocked before streamText ever
+// ran never made it into the persisted mentor_messages table either (see
+// route.ts's onFinish), so there's nothing server-side to recover it from.
+// sessionStorage survives that round trip within the same tab/session
+// without leaking into an unrelated later one.
+const PENDING_RESEND_KEY = 'mentor:pendingMessageAfterUpgrade';
+
+function stashPendingResend(text: string) {
+  try {
+    sessionStorage.setItem(PENDING_RESEND_KEY, text);
+  } catch {
+    // Private browsing / storage disabled -- the resend is a convenience,
+    // not a guarantee; silently skip rather than break the error flow.
+  }
+}
+
+function takePendingResend(): string | null {
+  try {
+    const text = sessionStorage.getItem(PENDING_RESEND_KEY);
+    if (text) sessionStorage.removeItem(PENDING_RESEND_KEY);
+    return text;
+  } catch {
+    return null;
+  }
+}
 
 export function MentorChatClient({
   firstName,
   initialMessages,
+  accessStatus,
 }: {
   firstName: string | null;
   initialMessages: AppMessage[];
+  accessStatus: AccessStatus;
 }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get('prompt');
   const hasAutoSubmittedRef = useRef(false);
+  // The exact text of whatever sendMessage was last asked to send, kept in
+  // a ref (not read off `messages` state) so onError below always sees the
+  // real value regardless of render timing -- see its own comment for why
+  // this matters specifically for the 402 case.
+  const lastSentTextRef = useRef<string | null>(null);
 
   // Opening/closing a tool-call panel inside a message (e.g.
   // SearchKbPanel) resizes the scrollable conversation the same way
@@ -43,6 +85,7 @@ export function MentorChatClient({
   // Conversation's targetScrollTop below to leave the scroll position
   // alone for toggles like that, without touching the library itself.
   const suppressAutoScrollRef = useRef(false);
+
   const handlePanelToggle = useCallback(() => {
     suppressAutoScrollRef.current = true;
     window.setTimeout(() => {
@@ -50,28 +93,85 @@ export function MentorChatClient({
     }, 400);
   }, []);
 
-  const { setHasMessages, bumpMemoryVersion } = useMentorChatState();
-  const { messages, sendMessage, status, setMessages } = useChat<AppMessage>({
+  // Seeded from the server-resolved accessStatus so an already-expired
+  // user sees this the moment the page loads, before ever trying to send
+  // a message -- not just reactively after a blocked request errors (the
+  // onError case below, which is the only way to learn about the
+  // trial-token-budget-exhausted case specifically, since that one isn't
+  // derivable from accessStatus alone on the server side here).
+  const [accessLimitMessage, setAccessLimitMessage] = useState<string | null>(
+    accessStatus.status === 'expired' ? ACCESS_EXPIRED_MESSAGE : null
+  );
+
+  const { setHasMessages, bumpMemoryVersion, bumpUsageVersion } = useMentorChatState();
+
+  const { messages, sendMessage, regenerate, status, setMessages } = useChat<AppMessage>({
     messages: initialMessages,
-    transport: new DefaultChatTransport({ api: '/api/mentor/chat' }),
-    // route.ts only ever writes this data part when manageMemory actually
-    // saved something mid-turn (see its own comment) -- bump the shared
-    // counter MentorControlsRail watches so it refetches, rather than
-    // reaching into the rail's state directly (it's a tree sibling, not a
-    // descendant -- see mentor-context.tsx).
+    transport: new DefaultChatTransport({
+      api: '/api/mentor/chat',
+      prepareSendMessagesRequest: (req) => ({
+        body: {
+          message: req.messages[req.messages.length - 1], // Send only recent msgs
+        },
+      }),
+    }),
+    // route.ts writes 'refresh-sidebar' only when manageMemory actually
+    // saved something mid-turn, and 'refresh-usage' whenever the turn
+    // recorded real token usage (see that file's comment) -- bump the
+    // matching shared counter MentorControlsRail watches so it refetches,
+    // rather than reaching into the rail's state directly (it's a tree
+    // sibling, not a descendant -- see mentor-context.tsx).
     onData: (dataPart) => {
-      if (dataPart.type === 'data-frontend-action' && dataPart.data === 'refresh-sidebar') {
-        bumpMemoryVersion();
-      }
+      if (dataPart.type !== 'data-frontend-action') return;
+      if (dataPart.data === 'refresh-sidebar') bumpMemoryVersion();
+      if (dataPart.data === 'refresh-usage') bumpUsageVersion();
     },
     // checkMentorChatLimits (route.ts's _utils.ts) returns a plain-text
     // body on a blocked request (trial budget used up, rate-limited, or
     // expired access) -- the AI SDK's own createUIApiCallError reads a
     // non-OK response's body as-is into error.message when there's no
-    // JSON envelope to unwrap, so this is already the exact human
-    // sentence to show, no parsing needed.
+    // JSON envelope to unwrap (it also attaches the response's own status
+    // as error.statusCode), so this is already the exact human sentence
+    // to show, no parsing needed.
+    //
+    // 402 (budget exhausted or expired) is the persistent access-limit
+    // bar, not a toast -- it doesn't go away on its own, so neither should
+    // the reminder. 429 (temporary rate limit) stays a toast -- it clears
+    // itself once the rolling window ages out, which a sticky bar would
+    // overstate.
+    //
+    // statusCode undefined (not just some other number) means the request
+    // never got an HTTP response at all -- offline, DNS failure, CORS, a
+    // dropped connection mid-flight (createUIApiCallError only ever sets
+    // statusCode from a real Response, see its own source) -- same as a
+    // genuine 5xx from the route itself: both mean "this reply never
+    // happened," not "you're not allowed to." Those get a friendly message
+    // instead of the raw fetch error text ("Failed to fetch" means nothing
+    // to a user) plus a Retry action wired to regenerate(), which re-sends
+    // the exact same turn rather than requiring them to retype it -- safe
+    // here because the failure happened without ever leaving the page, so
+    // the user message is still sitting right there in `messages` for
+    // regenerate() to resend from.
     onError: (error) => {
-      toast(error.message);
+      const statusCode = 'statusCode' in error ? error.statusCode : undefined;
+
+      if (statusCode === 402) {
+        setAccessLimitMessage(error.message);
+        if (lastSentTextRef.current) stashPendingResend(lastSentTextRef.current);
+        return;
+      }
+
+      if (statusCode === 429) {
+        toast(error.message);
+        return;
+      }
+
+      toast(
+        statusCode == null
+          ? "Couldn't reach the server. Check your connection and try again."
+          : 'Something went wrong sending that. Try again.',
+        { action: { label: 'Retry', onClick: () => regenerate() } }
+      );
     },
   });
 
@@ -94,21 +194,85 @@ export function MentorChatClient({
   useEffect(() => {
     if (initialPrompt && !hasAutoSubmittedRef.current) {
       hasAutoSubmittedRef.current = true;
+      lastSentTextRef.current = initialPrompt;
       sendMessage({ text: initialPrompt });
     }
   }, [initialPrompt, sendMessage]);
 
   const handleSubmit = useCallback(
     (text: string) => {
+      lastSentTextRef.current = text;
       sendMessage({ text });
     },
     [sendMessage]
   );
 
   const handleSuggestionClick = useCallback(
-    (sugg: string) => sendMessage({ text: sugg }),
+    (sugg: string) => {
+      lastSentTextRef.current = sugg;
+      sendMessage({ text: sugg });
+    },
     [sendMessage]
   );
+
+  // Arrival handling for the post-upgrade return trip:
+  //
+  // 1. A `reference` in the URL means checkout was started from this
+  //    page's own access-limit bar (?from=mentor -- see
+  //    access-limit-bar.tsx/payments-actions.ts's returnTo) and Paystack
+  //    just redirected straight back here instead of the generic Upgrade
+  //    callback page. Verify it ourselves (idempotent against the webhook,
+  //    see verifyAndActivatePayment's own comment) so access unblocks the
+  //    moment this page loads, show the same celebratory copy the
+  //    callback page would have, then strip the query params so a refresh
+  //    doesn't re-verify or re-show the toast.
+  // 2. Either way -- that path, or arriving here after clicking "Continue
+  //    with Eva" on the generic callback page -- if a message got stashed
+  //    by onError's 402 branch above and access is no longer blocked,
+  //    resend it automatically instead of leaving the user to retype
+  //    something they already wrote once.
+  const hasHandledArrivalRef = useRef(false);
+  useEffect(() => {
+    if (hasHandledArrivalRef.current) return;
+    hasHandledArrivalRef.current = true;
+
+    function resendIfPending() {
+      const pending = takePendingResend();
+      if (!pending) return;
+      setAccessLimitMessage(null);
+      toast('Resending your message...');
+      sendMessage({ text: pending });
+    }
+
+    const reference = searchParams.get('reference') ?? searchParams.get('trxref');
+    if (!reference) {
+      // Mirrors checkMentorChatLimits' own blocked condition (see
+      // _utils.ts) using the data already in accessStatus, so this only
+      // fires when a message would actually be allowed through now.
+      const isBlocked =
+        accessStatus.status === 'expired' ||
+        (accessStatus.status === 'trial' &&
+          accessStatus.trialTokensUsed >= accessStatus.trialTokenBudget);
+      if (!isBlocked) resendIfPending();
+      return;
+    }
+
+    verifyAndActivatePayment(reference).then((result) => {
+      router.replace('/dashboard/mentor');
+      if (result.status === 'success') {
+        const copy = paymentSuccessCopy(result.planId, result.endsAt);
+        toast.success(copy.heading, { description: copy.body });
+        router.refresh();
+        resendIfPending();
+      } else if (result.status === 'pending') {
+        toast(
+          "Still confirming your payment. We'll credit it automatically once it clears."
+        );
+      } else {
+        toast("We couldn't confirm that payment. Try again from the Upgrade page.");
+      }
+    });
+  }, [searchParams, accessStatus, router, sendMessage]);
 
   const isEmpty = messages.length === 0;
 
@@ -170,12 +334,15 @@ export function MentorChatClient({
   // real definition regardless of how closely the fill matches whatever's
   // behind it.
   const promptInput = (
-    <MentorPromptInput
-      status={status}
-      placeholder="Ask Eva anything about sourcing, pricing, or buyers..."
-      onSubmit={handleSubmit}
-      className={isEmpty ? 'bg-white! shadow-md' : 'bg-gray-50'}
-    />
+    <div className="relative">
+      {accessLimitMessage && <AccessLimitBar message={accessLimitMessage} />}
+      <MentorPromptInput
+        status={status}
+        placeholder="Ask Eva anything about sourcing, pricing, or buyers..."
+        onSubmit={handleSubmit}
+        className={isEmpty ? 'bg-white! shadow-md' : 'bg-gray-50'}
+      />
+    </div>
   );
 
   if (isEmpty) {
@@ -225,6 +392,7 @@ export function MentorChatClient({
       <MentorControlsRail
         onClearChat={handleClearChat}
         hasMessages={messages.length > 0}
+        accessStatus={accessStatus}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-8 pt-4 pb-6">
         <Conversation
@@ -233,7 +401,10 @@ export function MentorChatClient({
             suppressAutoScrollRef.current ? scrollElement.scrollTop : targetScrollTop
           }
         >
-          <ConversationContent className="mb-16" scrollClassName="scrollbar-none">
+          <ConversationContent
+            className="mb-16 flex flex-col"
+            scrollClassName="scrollbar-none"
+          >
             <ConversationMessages
               messages={visibleMessages}
               showLoadingIndicator={showLoadingIndicator}
