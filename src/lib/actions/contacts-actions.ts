@@ -42,7 +42,6 @@ export interface SearchContactsParams {
   query: string;
   locations: string[] | null;
   contactTypes: ContactType[];
-  limit: number;
 }
 
 // Cached for the process's lifetime, not per request — the country list
@@ -120,8 +119,7 @@ export async function getKnownProductVocabulary(): Promise<string[]> {
 
 async function searchIntlBuyers(
   query: string,
-  locations: string[] | null,
-  limit: number
+  locations: string[] | null
 ): Promise<ContactCard[]> {
   const supabase = createServiceClient();
   let q = supabase
@@ -133,19 +131,17 @@ async function searchIntlBuyers(
     q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
   }
 
-  const { data, error } = await q.limit(locations && locations.length > 0 ? FETCH_CAP : limit);
+  const { data, error } = await q.limit(FETCH_CAP);
   if (error) throw new Error(`intl buyer contacts: ${error.message}`);
 
   return (data ?? [])
     .filter((row) => matchesAnyLocation([row.country], locations))
-    .slice(0, limit)
     .map(toIntlBuyerCard);
 }
 
 async function searchLocalSuppliers(
   query: string,
-  locations: string[] | null,
-  limit: number
+  locations: string[] | null
 ): Promise<ContactCard[]> {
   const supabase = createServiceClient();
   let q = supabase
@@ -157,19 +153,17 @@ async function searchLocalSuppliers(
     q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
   }
 
-  const { data, error } = await q.limit(locations && locations.length > 0 ? FETCH_CAP : limit);
+  const { data, error } = await q.limit(FETCH_CAP);
   if (error) throw new Error(`local supplier contacts: ${error.message}`);
 
   return (data ?? [])
     .filter((row) => matchesAnyLocation([row.state, row.city], locations))
-    .slice(0, limit)
     .map(toLocalSupplierCard);
 }
 
 async function searchLogistics(
   query: string,
-  locations: string[] | null,
-  limit: number
+  locations: string[] | null
 ): Promise<ContactCard[]> {
   const supabase = createServiceClient();
   let q = supabase
@@ -179,19 +173,17 @@ async function searchLogistics(
     q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
   }
 
-  const { data, error } = await q.limit(locations && locations.length > 0 ? FETCH_CAP : limit);
+  const { data, error } = await q.limit(FETCH_CAP);
   if (error) throw new Error(`logistics contacts: ${error.message}`);
 
   return (data ?? [])
     .filter((row) => matchesAnyLocation([row.state, row.place], locations))
-    .slice(0, limit)
     .map(toLogisticsCard);
 }
 
 async function searchDocumentation(
   query: string,
-  locations: string[] | null,
-  limit: number
+  locations: string[] | null
 ): Promise<ContactCard[]> {
   const supabase = createServiceClient();
   let q = supabase
@@ -201,35 +193,32 @@ async function searchDocumentation(
     q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
   }
 
-  const { data, error } = await q.limit(locations && locations.length > 0 ? FETCH_CAP : limit);
+  const { data, error } = await q.limit(FETCH_CAP);
   if (error) throw new Error(`documentation contacts: ${error.message}`);
 
   return (data ?? [])
     .filter((row) => matchesAnyLocation([row.state, row.place], locations))
-    .slice(0, limit)
     .map(toDocumentationCard);
 }
 
 // Each selected type is capped at `limit` on its own, then the combined
-// list is capped at `limit` again — so a single-type search returns up to
-// `limit` results from that type, and a multi-type search returns up to
-// `limit` total, favoring whichever types come first in ALL_CONTACT_TYPES
-// order when there's overflow.
+// Every selected type is searched in full and the results combined --
+// no truncation, no favoring one type over another on overflow. Every
+// contact that matches gets shown, every time.
 async function runSearch(
   query: string,
   locations: string[] | null,
-  contactTypes: ContactType[],
-  limit: number
+  contactTypes: ContactType[]
 ): Promise<ContactCard[]> {
   const searchesByType: Record<ContactType, () => Promise<ContactCard[]>> = {
-    intl_buyers: () => searchIntlBuyers(query, locations, limit),
-    local_suppliers: () => searchLocalSuppliers(query, locations, limit),
-    logistics_packaging: () => searchLogistics(query, locations, limit),
-    documentation: () => searchDocumentation(query, locations, limit),
+    international_buyers_of_food_products: () => searchIntlBuyers(query, locations),
+    local_raw_processed_food_product_suppliers: () => searchLocalSuppliers(query, locations),
+    local_packaging_shipping_logistics: () => searchLogistics(query, locations),
+    local_documentation_regulatory_contacts: () => searchDocumentation(query, locations),
   };
 
   const resultsPerType = await Promise.all(contactTypes.map((type) => searchesByType[type]()));
-  return resultsPerType.flat().slice(0, limit);
+  return resultsPerType.flat();
 }
 
 export interface SearchContactsResult {
@@ -255,21 +244,20 @@ export async function searchContacts({
   query,
   locations,
   contactTypes,
-  limit,
 }: SearchContactsParams): Promise<SearchContactsResult> {
   // Resolved once, up front, against the real live country list -- every
   // search attempt below (exact, then the relaxation cascade) works off
   // this resolved array, never the model's raw wording.
   const resolvedLocations = resolveLocations(locations, await getKnownCountries());
 
-  const exact = await runSearch(query, resolvedLocations, contactTypes, limit);
+  const exact = await runSearch(query, resolvedLocations, contactTypes);
   if (exact.length > 0) {
     return { contacts: exact, relaxedLocation: false, relaxedContactTypes: false };
   }
 
   const hasLocations = Boolean(resolvedLocations && resolvedLocations.length > 0);
   if (hasLocations) {
-    const withoutLocation = await runSearch(query, null, contactTypes, limit);
+    const withoutLocation = await runSearch(query, null, contactTypes);
     if (withoutLocation.length > 0) {
       return { contacts: withoutLocation, relaxedLocation: true, relaxedContactTypes: false };
     }
@@ -277,7 +265,7 @@ export async function searchContacts({
 
   const alreadySearchedEveryType = contactTypes.length === ALL_CONTACT_TYPES.length;
   if (!alreadySearchedEveryType) {
-    const everyType = await runSearch(query, null, ALL_CONTACT_TYPES, limit);
+    const everyType = await runSearch(query, null, ALL_CONTACT_TYPES);
     if (everyType.length > 0) {
       return { contacts: everyType, relaxedLocation: hasLocations, relaxedContactTypes: true };
     }

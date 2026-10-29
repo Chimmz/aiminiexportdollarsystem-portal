@@ -25,7 +25,7 @@ import { ACCESS_EXPIRED_MESSAGE } from '@/lib/utils/access-messages';
 import { paymentSuccessCopy } from '@/lib/utils/plan-utils';
 import type { AccessStatus } from '@/lib/utils/user-utils';
 import { starterPrompts } from '../config';
-import { isSuggestNextStepsResult, messageHasVisibleContent } from '../_utils';
+import { isNextStepsResult, messageHasVisibleContent } from '../_utils';
 
 // Where a message blocked by the access-limit bar (402, see onError below)
 // is stashed so it can be resent after an upgrade. A Paystack checkout is
@@ -207,13 +207,49 @@ export function MentorChatClient({
     [sendMessage]
   );
 
-  const handleSuggestionClick = useCallback(
-    (sugg: string) => {
-      lastSentTextRef.current = sugg;
-      sendMessage({ text: sugg });
-    },
-    [sendMessage]
-  );
+  // Eva's own personalized suggestions for this conversation, written
+  // deterministically after every reply with real text (see
+  // lib/mentor/next-steps.ts), not a tool she decides whether to call.
+  // Looked up from the most recent assistant message, not necessarily the
+  // very last message overall, so the chips from her last turn stay
+  // visible while the next reply is still streaming in rather than
+  // disappearing and reappearing. Computed up here (not down with the
+  // other derived values below) because handleSuggestionClick needs
+  // lastAssistantMessage's id too.
+  const lastAssistantMessage = messages.filter((m) => m.role === 'assistant').at(-1);
+  const dynamicSuggestions = lastAssistantMessage?.parts.find(isNextStepsResult);
+  const lastAssistantMessageId = lastAssistantMessage?.id ?? null;
+
+  // Two guards against a chip click being actioned twice, for two
+  // different reasons. suggestionClickedForIdRef is the real double-click
+  // guard -- a ref read and written only inside the handler below, never
+  // during render (React refs can't drive rendering), so even a second
+  // click landing before React has re-rendered at all still sees it was
+  // already set and bails out immediately. dismissedMessageId is state,
+  // set inside that same handler, purely so the chip row can hide itself
+  // right away -- it tracks which assistant message's suggestions were
+  // clicked, not a plain boolean, so a later turn's new chips become
+  // clickable again on their own (dismissedMessageId simply won't match
+  // the new message's id) without a separate reset effect anywhere.
+  const suggestionClickedForIdRef = useRef<string | null>(null);
+  const [dismissedMessageId, setDismissedMessageId] = useState<string | null>(null);
+
+  // Not wrapped in useCallback -- it closes over lastAssistantMessageId,
+  // which changes every turn, so a hand-written dependency array here is
+  // exactly the kind of thing the React Compiler already auto-memoizes
+  // (and couldn't reconcile with a manual one of its own).
+  function handleSuggestionClick(sugg: string) {
+    if (suggestionClickedForIdRef.current === lastAssistantMessageId) return;
+    suggestionClickedForIdRef.current = lastAssistantMessageId;
+    setDismissedMessageId(lastAssistantMessageId);
+    lastSentTextRef.current = sugg;
+    sendMessage({ text: sugg });
+  }
+  // The lastAssistantMessageId !== null guard matters -- without it, the
+  // initial "no assistant message yet, dismissedMessageId still null"
+  // state would compare null === null and read as already dismissed.
+  const suggestionsDismissed =
+    lastAssistantMessageId !== null && dismissedMessageId === lastAssistantMessageId;
 
   // Arrival handling for the post-upgrade return trip:
   //
@@ -284,15 +320,6 @@ export function MentorChatClient({
   useEffect(() => {
     setHasMessages(!isEmpty);
   }, [isEmpty, setHasMessages]);
-
-  // Eva's own personalized suggestions for this conversation, read off
-  // the most recent assistant turn that actually called suggestNextSteps
-  // (see suggest-next-steps-tool.ts). Looked up from the most recent
-  // assistant message, not necessarily the very last message overall, so
-  // the chips from her last turn stay visible while the next reply is
-  // still streaming in rather than disappearing and reappearing.
-  const lastAssistantMessage = messages.filter((m) => m.role === 'assistant').at(-1);
-  const dynamicSuggestions = lastAssistantMessage?.parts.find(isSuggestNextStepsResult);
 
   // `status` flips from "submitted" to "streaming" the moment ANY part of
   // the reply starts arriving, including a tool call's input streaming in
@@ -374,10 +401,13 @@ export function MentorChatClient({
   // Once the conversation is underway, the generic starter prompts are
   // gone for good — the chip row shows only Eva's own suggestions for
   // this specific turn, and shows nothing at all on a turn where she had
-  // nothing specific worth suggesting.
-  const chatSuggestions = dynamicSuggestions?.output?.suggestions?.length ? (
+  // nothing specific worth suggesting. !suggestionsDismissed hides the
+  // row the instant one of its own chips gets clicked, rather than
+  // leaving it clickable (and re-sendable) for however long it takes
+  // Eva's next reply to actually arrive.
+  const chatSuggestions = !suggestionsDismissed && dynamicSuggestions?.data?.suggestions?.length ? (
     <Suggestions>
-      {dynamicSuggestions.output.suggestions.map((suggestion) => (
+      {dynamicSuggestions.data.suggestions.map((suggestion) => (
         <Suggestion
           key={suggestion}
           suggestion={suggestion}

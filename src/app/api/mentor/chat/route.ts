@@ -25,6 +25,7 @@ import { buildSystemPrompt } from './config';
 import { checkMentorChatLimits, redactSearchContactsOutputs } from './_utils';
 import { buildWorkingMemoryMessages } from '@/lib/mentor/working-memory';
 import { WORKING_MEMORY_LIMITS } from '@/lib/mentor/limits';
+import { generateNextSteps } from '@/lib/mentor/next-steps';
 
 // Matt Pocock's InferUITools trick: map getTools()'s own inferred return
 // type into each tool's { input, output } shape, so every tool part
@@ -49,9 +50,19 @@ type AppTools = InferUITools<Awaited<ReturnType<typeof getTools>>>;
 // watches for both and tells the chat-controls rail -- a tree sibling,
 // not a descendant, see mentor-context.tsx -- to refetch memory/usage
 // right away instead of only loading them once on mount.
+//
+// 'next-steps': the suggestion chips, written once per turn by
+// generateNextSteps (lib/mentor/next-steps.ts) after Eva's reply
+// finishes -- a deterministic, code-triggered call, not a tool the main
+// model decides whether to use (see that file's own comment for why).
+// mentor-chat-client.tsx reads this straight off the last assistant
+// message's parts, same as it read the old tool's output.
 export type AppMessage = UIMessage<
   never,
-  { 'frontend-action': 'refresh-sidebar' | 'refresh-usage' },
+  {
+    'frontend-action': 'refresh-sidebar' | 'refresh-usage';
+    'next-steps': { suggestions: string[] };
+  },
   AppTools
 >;
 
@@ -141,8 +152,9 @@ export async function POST(req: Request) {
     // Default is isStepCount(1) — the model would call the tool and the
     // loop would stop right there, never reading the tool's result back to
     // actually answer. 6 gives headroom for a retrieval/contacts tool call,
-    // a manageMemory call, a suggestNextSteps call, and the final answer,
-    // without risking a runaway loop.
+    // a manageMemory call, and the final answer, without risking a runaway
+    // loop. suggestNextSteps no longer competes for one of these steps --
+    // see lib/mentor/next-steps.ts.
     stopWhen: stepCountIs(6),
     prepareStep: ({ messages: stepMessages }) => ({
       messages: redactSearchContactsOutputs(stepMessages),
@@ -175,7 +187,11 @@ export async function POST(req: Request) {
         // their own step under stopWhen above), not just the last one --
         // that's the real number checkMentorChatLimits' budget/rate-limit
         // math is counting against, not an estimate.
-        const [steps, usage] = await Promise.all([result.steps, result.usage]);
+        const [steps, usage, finalText] = await Promise.all([
+          result.steps,
+          result.usage,
+          result.text,
+        ]);
 
         // Tell the chat-controls rail to refetch its memory list (via the
         // data part below) only when manageMemory actually ran this turn,
@@ -206,14 +222,25 @@ export async function POST(req: Request) {
           totalTokens: usage.totalTokens,
         });
 
-        if (usage.totalTokens) {
-          try {
-            await recordTokenUsage(user.id, usage.totalTokens);
-            writer.write({ type: 'data-frontend-action', data: 'refresh-usage' });
-          } catch (err) {
-            console.error('[mentor] record token usage failed:', err);
-          }
-        }
+        // Independent of each other -- run together rather than one after
+        // the other.
+        await Promise.all([
+          (async () => {
+            if (!usage.totalTokens) return;
+            try {
+              await recordTokenUsage(user.id, usage.totalTokens);
+              writer.write({ type: 'data-frontend-action', data: 'refresh-usage' });
+            } catch (err) {
+              console.error('[mentor] record token usage failed:', err);
+            }
+          })(),
+          (async () => {
+            const suggestions = await generateNextSteps(modelMessages, finalText);
+            if (suggestions.length > 0) {
+              writer.write({ type: 'data-next-steps', data: { suggestions } });
+            }
+          })(),
+        ]);
       },
       onFinish: async ({ messages: finalMessages }) => {
         // `messages` (the request body) already includes the user's new

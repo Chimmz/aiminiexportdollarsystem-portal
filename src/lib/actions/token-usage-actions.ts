@@ -76,16 +76,42 @@ const MIN_HOUR_BUCKETS = 6;
 // home). A free trial's whole lifetime budget can burn through in under a
 // day -- a fixed 14-point daily chart would be useless for that case, all
 // zeros but one spike -- so granularity adapts to how the user's own
-// usage (within the trailing HISTORY_DAYS window) is actually spread: all
-// on one calendar date bunches it by hour instead; spread across 2+ dates
-// keeps the original fixed daily window. Either way, every bucket in the
-// returned range is present, zero-filled, oldest first -- a chart with
-// gaps where nothing happened reads as broken data, not as "no usage."
+// usage is actually spread: all on one calendar date bunches it by hour
+// instead; spread across 2+ dates keeps the daily window. Either way,
+// every bucket in the returned range is present, zero-filled, oldest
+// first -- a chart with gaps where nothing happened reads as broken data,
+// not as "no usage."
+//
+// The window itself starts at whichever is LATER: HISTORY_DAYS ago (an
+// established user still gets the normal trailing window, not their
+// entire history), or this user's actual first-ever token_usage row.
+// Without that second clamp, a user just three days into their trial got
+// a 14-day chart padded with eleven flat, empty days before they had ever
+// sent a message -- the x-axis should start where their usage actually
+// starts, not at a fixed lookback that assumes everyone's been active the
+// whole time.
 export async function getTokenUsageTimeline(userId: string): Promise<TokenUsageTimeline> {
-  const since = new Date(Date.now() - (HISTORY_DAYS - 1) * 24 * 60 * 60 * 1000);
-  since.setUTCHours(0, 0, 0, 0);
-
   const supabase = createServiceClient();
+
+  const { data: earliestRow, error: earliestError } = await supabase
+    .from('token_usage')
+    .select('created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (earliestError) throw new Error(`earliest token usage: ${earliestError.message}`);
+
+  const historyFloor = new Date(Date.now() - (HISTORY_DAYS - 1) * 24 * 60 * 60 * 1000);
+  historyFloor.setUTCHours(0, 0, 0, 0);
+
+  let since = historyFloor;
+  if (earliestRow) {
+    const earliestDay = new Date(earliestRow.created_at);
+    earliestDay.setUTCHours(0, 0, 0, 0);
+    if (earliestDay > historyFloor) since = earliestDay;
+  }
+
   const { data, error } = await supabase
     .from('token_usage')
     .select('tokens, created_at')
@@ -113,8 +139,18 @@ function bucketByDay(
     tokensByDate.set(date, (tokensByDate.get(date) ?? 0) + row.tokens);
   }
 
-  return Array.from({ length: HISTORY_DAYS }, (_, i) => {
-    const date = new Date(since.getTime() + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Spans from `since` to today, not a fixed HISTORY_DAYS count -- `since`
+  // itself may already be fewer than HISTORY_DAYS back (see
+  // getTokenUsageTimeline's earliest-usage clamp), and a fixed count here
+  // would either run past today or re-introduce the empty-padding problem
+  // that clamp exists to remove.
+  const day = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const dayCount = Math.round((today.getTime() - since.getTime()) / day) + 1;
+
+  return Array.from({ length: dayCount }, (_, i) => {
+    const date = new Date(since.getTime() + i * day).toISOString().slice(0, 10);
     return { date, tokens: tokensByDate.get(date) ?? 0 };
   });
 }

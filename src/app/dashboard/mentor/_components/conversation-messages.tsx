@@ -8,7 +8,6 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { MessageFeedback } from '@/components/ai-elements/message-feedback';
-import { AtomicLoader } from '@/components/ui/atomic-loader';
 import { Container } from '@/components/layout/container';
 import { ContactsCarousel } from '@/components/tools-ui/contacts-carousel';
 import { ContactSearchPanel } from '@/components/tools-ui/contact-search-panel';
@@ -16,8 +15,10 @@ import { SearchKbPanel } from '@/components/tools-ui/search-kb-panel';
 import { MemoryUpdatesPanel } from '@/components/tools-ui/memory-updates-panel';
 import { PricingCalculatorPanel } from '@/components/tools-ui/pricing-calculator-panel';
 import { MediaGalleryPanel } from '@/components/tools-ui/media-gallery-panel';
+import { getMessageText } from '@/lib/utils/conversation-utils';
 import { cn } from '@/lib/utils';
 import { EvaAvatar } from './eva-avatar';
+import { AtomicLoader } from '@/components/ui/atomic-loader';
 
 // Narrower than mentor-chat-client.tsx's own messageHasVisibleContent --
 // true only once Eva has actually written words, not just rendered a tool
@@ -148,7 +149,7 @@ export function ConversationMessages({
               })}
             </MessageContent>
             {message.role === 'assistant' && messageHasText(message) ? (
-              <MessageFeedback />
+              <MessageFeedback text={getMessageText(message)} />
             ) : null}
           </Message>
         </div>
@@ -158,7 +159,8 @@ export function ConversationMessages({
           <EvaAvatar />
           <Message from="assistant" className="min-w-0">
             <MessageContent>
-              <AtomicLoader className="my-2.5 text-muted-foreground" />
+              <AtomicLoader className="my-2.5  " />
+              {/* <AmoeboidLoader className="my-2.5 text-primary" /> */}
             </MessageContent>
           </Message>
         </div>

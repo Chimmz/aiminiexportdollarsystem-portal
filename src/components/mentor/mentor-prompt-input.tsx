@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import type { ChatStatus } from 'ai';
-import { CornerDownLeftIcon, SquareIcon, XIcon } from 'lucide-react';
+import { ArrowUpIcon, SquareIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
@@ -77,7 +77,7 @@ export function MentorPromptInput({
     setHasNewline(e.target.value.includes('\n'));
   };
 
-  let icon = <CornerDownLeftIcon className="size-4" />;
+  let icon = <ArrowUpIcon className="size-4" />;
   if (status === 'submitted') icon = <Spinner className="size-4" />;
   else if (status === 'streaming') icon = <SquareIcon className="size-4" />;
   else if (status === 'error') icon = <XIcon className="size-4" />;

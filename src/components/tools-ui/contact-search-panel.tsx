@@ -26,10 +26,10 @@ import type { ContactCard, ContactType } from '@/lib/utils/contacts-utils';
 // paperwork, Globe-ish feel for buyers abroad covered by UsersIcon's
 // international-buyer badge having its own icon below.
 const CONTACT_TYPE_META: Record<ContactType, { icon: LucideIcon; label: string }> = {
-  intl_buyers: { icon: UsersIcon, label: 'International buyers' },
-  local_suppliers: { icon: WarehouseIcon, label: 'Local suppliers' },
-  logistics_packaging: { icon: TruckIcon, label: 'Logistics & packaging' },
-  documentation: { icon: FileTextIcon, label: 'Documentation' },
+  international_buyers_of_food_products: { icon: UsersIcon, label: 'International buyers' },
+  local_raw_processed_food_product_suppliers: { icon: WarehouseIcon, label: 'Local suppliers' },
+  local_packaging_shipping_logistics: { icon: TruckIcon, label: 'Logistics & packaging' },
+  local_documentation_regulatory_contacts: { icon: FileTextIcon, label: 'Documentation' },
 };
 
 // Rendered alongside (above, not instead of) ContactsCarousel for the
@@ -75,6 +75,12 @@ export function ContactSearchPanel({
           <div className="flex flex-wrap gap-1.5">
             {presentTypes.map((type) => {
               const meta = CONTACT_TYPE_META[type];
+              // A conversation persisted before contact types were last
+              // renamed can still have an old type string (e.g.
+              // 'intl_buyers') baked into its saved tool output -- skip a
+              // badge for it rather than crashing on a lookup the current
+              // code no longer has a key for.
+              if (!meta) return null;
               const Icon = meta.icon;
               return (
                 <Badge key={type} variant="outline" className="gap-1">

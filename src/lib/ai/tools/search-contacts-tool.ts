@@ -1,11 +1,6 @@
 import { tool, generateText, Output, type ModelMessage } from 'ai';
 import { z } from 'zod';
-import {
-  ALL_CONTACT_TYPES,
-  FETCH_CAP,
-  MAX_CONTACT_LIMIT,
-  type ContactType,
-} from '@/lib/utils/contacts-utils';
+import { ALL_CONTACT_TYPES, type ContactType } from '@/lib/utils/contacts-utils';
 import { searchContacts, getKnownProductVocabulary } from '@/lib/actions/contacts-actions';
 import { extractTextHistory } from '@/lib/utils/conversation-utils';
 import { queryRewriteModel } from '@/lib/ai/models';
@@ -104,77 +99,44 @@ export function createSearchContactsTool(messages: ModelMessage[]) {
 
   return tool({
     description: `Look up real contacts from the course's bonus contact
-      directories: international buyers abroad, local Nigerian suppliers to
-      source from, shipping/packaging/logistics providers, and
-      documentation/regulatory paperwork providers. Call this whenever the
-      user wants actual contacts, not general advice, such as "who can I
-      sell crayfish to", "give me 5 suppliers of palm oil in Lagos", or "who
-      can help me with my export license paperwork". The product, service,
-      or location being asked about may have been established earlier in
-      the conversation rather than repeated in the latest message.`,
+      directories. Call this whenever the user wants actual contacts, not
+      general advice. The product, service, or location may have been
+      established earlier in the conversation, not just the latest
+      message.`,
     inputSchema: z.object({
       query: z.string().describe(
-        `The product or service to search for, e.g. "crayfish", "palm oil",
-          "air freight", "packaging materials", "cartons". If the latest message doesn't
-          repeat it, resolve it from the rest of the conversation instead of
-          guessing or leaving it generic -- a follow-up like "show me 5
-          contacts that buy from me" after a message about crayfish still
-          means query should be "crayfish".`
+        `The product to search for, for
+          international_buyers_of_food_products and
+          local_raw_processed_food_product_suppliers. The service to
+          search for, for local_packaging_shipping_logistics and
+          local_documentation_regulatory_contacts -- those two have no
+          product field, only a service description, so a product name
+          matches nothing there. Resolve from earlier in the conversation
+          if the latest message doesn't repeat it.`
       ),
       locations: z
         .array(z.string())
         .nullable()
         .describe(
-          `Countries (for international buyers) or Nigerian states/cities
-          (for local suppliers, logistics/packaging, or documentation
-          providers). Same rule as query -- resolve it from earlier in the
-          conversation if it's not in the latest message. Null or an empty
-          array if no location applies -- never invent or default to one
-          the user didn't actually name; a question like "who buys my
-          products abroad?" names no country, so this should be null
-          (searching every country), not a guess.
-
-          Pass the user's own wording straight through, including an
-          abbreviation, alias, or a region like "Europe" or "Middle East"
-          -- resolving that to the exact matching country or countries
-          happens on the server, not here.
-
-          local_suppliers, logistics_packaging, and documentation are
-          already exclusively Nigerian directories -- every row in them is
-          already in Nigeria, there's no row literally tagged "Nigeria".
-          So never pass "Nigeria" itself as a location for those. Only pass
-          a location for those three when the user names an actual
-          Nigerian state or city, e.g. "Lagos" or "Oron".`
+          `Countries for international_buyers_of_food_products, or
+          Nigerian states/cities for the other three directories, which
+          are already exclusively Nigerian -- never pass "Nigeria" itself
+          for them. Resolve from earlier in the conversation if the latest
+          message doesn't repeat it. Null or empty if no location was
+          actually named -- never invent one. Pass the user's own wording
+          straight through, including an abbreviation or a region --
+          resolving it happens on the server, not here.`
         ),
       contactTypes: z
         .array(z.enum(CONTACT_TYPE_VALUES))
         .nullable()
-        .describe(
-          `Which directories to search: intl_buyers (buyers abroad to sell
-            to), local_suppliers (Nigerian suppliers to source from),
-            logistics_packaging (shipping, packaging, freight providers),
-            and/or documentation (export licenses, CAC/business
-            registration, compliance and regulatory paperwork providers).
-            Null or an empty list searches all four.`
-        ),
-      limit: z
-        .number()
-        .int()
-        .nullable()
-        .describe(
-          `How many contacts to return, only when the user actually asked
-            for a specific number, e.g. 5 for "give me 5 contacts". Leave
-            this null otherwise -- null means every matching contact is
-            returned, not some default handful, so don't invent a number
-            just because the field exists.`
-        ),
+        .describe('Which directories to search. Null or empty searches all four.'),
     }),
-    execute: async ({ query, locations, contactTypes, limit }) => {
+    execute: async ({ query, locations, contactTypes }) => {
       console.log('[mentor] searchContacts call:', {
         query,
         locations,
         contactTypes,
-        limit,
         conversationHistory,
       });
       // Structured, not a formatted string -- the chat UI reads this same
@@ -184,15 +146,11 @@ export function createSearchContactsTool(messages: ModelMessage[]) {
       try {
         const resolvedContactTypes =
           contactTypes && contactTypes.length > 0 ? contactTypes : ALL_CONTACT_TYPES;
-        // No limit asked for -> return everything that matches (capped only
-        // by FETCH_CAP's safety ceiling), not some arbitrary small default.
-        const resolvedLimit = limit != null ? Math.min(limit, MAX_CONTACT_LIMIT) : FETCH_CAP;
 
         let { contacts, relaxedLocation, relaxedContactTypes } = await searchContacts({
           query,
           locations,
           contactTypes: resolvedContactTypes,
-          limit: resolvedLimit,
         });
 
         // The DB-side relaxation cascade above only ever loosens filters
@@ -213,7 +171,6 @@ export function createSearchContactsTool(messages: ModelMessage[]) {
               query: regroundedTerm,
               locations,
               contactTypes: resolvedContactTypes,
-              limit: resolvedLimit,
             }));
           }
         }

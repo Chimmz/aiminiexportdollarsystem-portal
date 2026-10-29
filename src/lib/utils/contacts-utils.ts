@@ -1,34 +1,36 @@
 import { formatMonthYear } from './date-utils';
 
-// The three bonus contact directories (see supabase/migrations/
+// The four bonus contact directories (see supabase/migrations/
 // 0003_contact_directories.sql) as one searchable surface. The actual
 // queries live in lib/actions/contacts-actions.ts -- this file is just the
 // shared shapes (ContactType, ContactCard) and the pure transforms over
 // them (row -> card mapping, location matching, the model-facing summary),
 // none of which touch the database themselves.
 
-export type ContactType = 'intl_buyers' | 'local_suppliers' | 'logistics_packaging' | 'documentation';
+// Named for exactly what each directory is, not a short code -- a vague
+// name like "local_suppliers" or "logistics_packaging" left the model
+// guessing by surface wording ("supplier" -> local_suppliers even for a
+// packaging-materials request, which actually lives in the logistics
+// directory). A self-explanatory name removes that whole class of
+// mistake instead of trying to prompt-engineer around it.
+export type ContactType =
+  | 'international_buyers_of_food_products'
+  | 'local_raw_processed_food_product_suppliers'
+  | 'local_packaging_shipping_logistics'
+  | 'local_documentation_regulatory_contacts';
 
 export const ALL_CONTACT_TYPES: ContactType[] = [
-  'intl_buyers',
-  'local_suppliers',
-  'logistics_packaging',
-  'documentation',
+  'international_buyers_of_food_products',
+  'local_raw_processed_food_product_suppliers',
+  'local_packaging_shipping_logistics',
+  'local_documentation_regulatory_contacts',
 ];
 
-// Only a sanity ceiling on a limit the user actually asked for (e.g. "give
-// me 5 contacts") -- there is no default limit applied when they didn't ask
-// for one. See search-contacts-tool.ts, which falls back to FETCH_CAP below
-// instead of a small default when limit is null, so an unqualified search
-// returns everything that matches rather than an arbitrary handful.
-export const MAX_CONTACT_LIMIT = 15;
-
-// A generous cap, not a real pagination limit. Used by contacts-actions.ts
-// as the fetch size whenever a location filter still needs to run in JS
-// after the DB-side text search already narrowed things down, and as the
-// result cap search-contacts-tool.ts falls back to when the user didn't
-// ask for a specific number -- effectively "no limit" without a literally
-// unbounded query.
+// A technical safety ceiling on the raw DB fetch, not a product-visible
+// limit -- searchContacts always returns every matching contact, no
+// partial/capped results, ever. This only exists so a single query can't
+// pull an unbounded number of rows if a directory ever grows far past
+// today's size.
 export const FETCH_CAP = 2000;
 
 function includesCaseInsensitive(haystack: string | null, needle: string): boolean {
@@ -139,7 +141,7 @@ export type DocumentationRow = LogisticsRow;
 
 export function toIntlBuyerCard(row: IntlBuyerRow): ContactCard {
   return {
-    type: 'intl_buyers',
+    type: 'international_buyers_of_food_products',
     name: row.name_or_company ?? 'Unnamed contact',
     location: row.country,
     summary: row.products ? `Buys: ${row.products}` : row.buyer_type,
@@ -163,7 +165,7 @@ export function toIntlBuyerCard(row: IntlBuyerRow): ContactCard {
 
 export function toLocalSupplierCard(row: LocalSupplierRow): ContactCard {
   return {
-    type: 'local_suppliers',
+    type: 'local_raw_processed_food_product_suppliers',
     name: row.supplier ?? 'Unnamed supplier',
     location: [row.city, row.state].filter(Boolean).join(', ') || null,
     summary: row.products ? `Supplies: ${row.products}` : row.supplier_group,
@@ -187,7 +189,7 @@ export function toLocalSupplierCard(row: LocalSupplierRow): ContactCard {
 
 export function toLogisticsCard(row: LogisticsRow): ContactCard {
   return {
-    type: 'logistics_packaging',
+    type: 'local_packaging_shipping_logistics',
     name: row.name ?? 'Unnamed provider',
     location: [row.place, row.state].filter(Boolean).join(', ') || null,
     summary: row.offer ?? row.service,
@@ -204,7 +206,7 @@ export function toLogisticsCard(row: LogisticsRow): ContactCard {
 
 export function toDocumentationCard(row: DocumentationRow): ContactCard {
   return {
-    type: 'documentation',
+    type: 'local_documentation_regulatory_contacts',
     name: row.name ?? 'Unnamed provider',
     location: [row.place, row.state].filter(Boolean).join(', ') || null,
     summary: row.offer ?? row.service,

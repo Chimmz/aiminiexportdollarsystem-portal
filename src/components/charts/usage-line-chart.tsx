@@ -1,6 +1,7 @@
 'use client';
 
-import { CartesianGrid, Line, LineChart, XAxis } from 'recharts';
+import { useId } from 'react';
+import { Area, AreaChart, CartesianGrid, XAxis } from 'recharts';
 import {
   ChartContainer,
   ChartTooltip,
@@ -36,9 +37,21 @@ interface UsageLineChartProps {
 
 export function UsageLineChart({ data, granularity = 'day' }: UsageLineChartProps) {
   const formatLabel = granularity === 'hour' ? formatHour : formatShortDate;
+  // Scoped to this instance -- this chart renders in two places at once
+  // (dashboard home, mentor controls rail), and an SVG gradient's id has
+  // to be unique in the document or the second instance would silently
+  // reuse (or fight over) the first one's <linearGradient>.
+  const gradientId = `usage-tokens-gradient-${useId()}`;
+
   return (
     <ChartContainer config={chartConfig} className="h-28 w-full">
-      <LineChart data={data} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+      <AreaChart data={data} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="var(--color-tokens)" stopOpacity={0.175} />
+            <stop offset="95%" stopColor="var(--color-tokens)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis
           dataKey="date"
@@ -46,15 +59,23 @@ export function UsageLineChart({ data, granularity = 'day' }: UsageLineChartProp
           axisLine={false}
           tickMargin={6}
           minTickGap={28}
+          // Default interval mode preserves the end and drops from the
+          // start under tight spacing -- with a short range (the earliest-
+          // usage clamp in getTokenUsageTimeline can make that as few as a
+          // handful of points), that silently dropped the very first,
+          // real start-of-usage date. preserveStartEnd always keeps both
+          // ends labeled, only auto-skipping in between.
+          interval="preserveStartEnd"
           tickFormatter={formatLabel}
           fontSize={10}
         />
         <ChartTooltip content={<ChartTooltipContent labelFormatter={(v) => formatLabel(String(v))} />} />
-        <Line
+        <Area
           dataKey="tokens"
           type="monotone"
           stroke="var(--color-tokens)"
           strokeWidth={2}
+          fill={`url(#${gradientId})`}
           dot={false}
           // recharts' default 1500ms morph is tuned for a chart appearing
           // once, not one that re-renders mid-session on every
@@ -64,7 +85,7 @@ export function UsageLineChart({ data, granularity = 'day' }: UsageLineChartProp
           // rather than a hard cut, without drawing attention to itself.
           animationDuration={300}
         />
-      </LineChart>
+      </AreaChart>
     </ChartContainer>
   );
 }

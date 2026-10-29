@@ -14,7 +14,12 @@ export type SuggestionsProps = ComponentProps<typeof Carousel>;
 // scrolled with Shift+wheel or a trackpad gesture. dragFree keeps it a
 // loose, unsnapped scroll since these are variable-width chips, not fixed
 // slides.
-export const Suggestions = ({ className, children, opts, ...props }: SuggestionsProps) => (
+export const Suggestions = ({
+  className,
+  children,
+  opts,
+  ...props
+}: SuggestionsProps) => (
   <Carousel
     opts={{ align: 'start', dragFree: true, containScroll: 'trimSnaps', ...opts }}
     className={cn('w-full pl-2', className)}
@@ -36,7 +41,7 @@ export const Suggestion = ({
   onClick,
   className,
   variant = 'outline',
-  size = 'sm',
+  size = 'xs',
   children,
   ...props
 }: SuggestionProps) => {
@@ -47,7 +52,7 @@ export const Suggestion = ({
   return (
     <CarouselItem className="basis-auto pl-2">
       <Button
-        className={cn('cursor-pointer rounded-full px-4', className)}
+        className={cn('cursor-pointer rounded-full px-4 font-normal', className)}
         onClick={handleClick}
         size={size}
         type="button"

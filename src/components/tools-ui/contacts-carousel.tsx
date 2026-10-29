@@ -178,7 +178,7 @@ export function ContactsCarousel({
           {contacts.map((contact, i) => {
             return (
               <CarouselItem key={i} className="basis-1/1 md:basis-1/2">
-                <div className="flex h-full flex-col gap-3 rounded-2xl bg-card p-5 shadow-lg ring-1 ring-foreground/10">
+                <div className="flex h-full flex-col gap-3 rounded-2xl bg-card p-5 ring-1 ring-foreground/10">
                   <div className="flex items-start gap-3">
                     <Avatar size="lg">
                       <AvatarFallback>{initials(contact.name)}</AvatarFallback>

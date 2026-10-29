@@ -17,15 +17,11 @@ export function messageHasVisibleContent(message: AppMessage): boolean {
 // A type predicate, not a plain boolean check -- Array.prototype.find
 // only narrows its result past AppMessage['parts'][number] when the
 // callback is actually typed as one, which is what lets
-// mentor-chat-client.tsx's dynamicSuggestions.output be real
-// suggestNextSteps output (via AppMessage's InferUITools, see
-// lib/ai/message.ts) instead of needing its own manual cast.
-type SuggestNextStepsResult = Extract<
-  AppMessage['parts'][number],
-  { type: 'tool-suggestNextSteps'; state: 'output-available' }
->;
-export function isSuggestNextStepsResult(
-  part: AppMessage['parts'][number]
-): part is SuggestNextStepsResult {
-  return part.type === 'tool-suggestNextSteps' && part.state === 'output-available';
+// mentor-chat-client.tsx's dynamicSuggestions.data be real { suggestions }
+// instead of needing its own manual cast. 'data-next-steps' is written by
+// route.ts's generateNextSteps call (lib/mentor/next-steps.ts), not a
+// tool result -- see that file for why this moved off the tool-call path.
+type NextStepsResult = Extract<AppMessage['parts'][number], { type: 'data-next-steps' }>;
+export function isNextStepsResult(part: AppMessage['parts'][number]): part is NextStepsResult {
+  return part.type === 'data-next-steps';
 }
