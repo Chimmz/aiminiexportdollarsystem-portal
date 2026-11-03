@@ -106,6 +106,10 @@ export default function SignInPage() {
             </form>
           )}
         </FadeIn>
+
+        <Link href="/privacy" className="text-xs text-muted-foreground underline hover:text-foreground">
+          Privacy Policy
+        </Link>
       </div>
     </div>
   );
