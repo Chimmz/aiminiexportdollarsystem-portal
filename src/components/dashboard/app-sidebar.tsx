@@ -139,7 +139,9 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
                 className="relative z-10"
               />
             ) : (
-              <item.icon className={cn('relative z-10', isActive && 'text-primary-foreground')} />
+              <item.icon
+                className={cn('relative z-10', isActive && 'text-primary-foreground')}
+              />
             )}
             {/* Hidden rather than left to clip via the button's own
                 overflow-hidden -- clipping still leaves the label
@@ -205,7 +207,10 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
           <DropdownMenuTrigger asChild>
             {/* Same size="lg" collapsed-padding/centering quirk as
                 renderNavItem's buttons above -- same two-part fix. */}
-            <SidebarMenuButton size="lg" className="group-data-[collapsible=icon]:justify-center">
+            <SidebarMenuButton
+              size="lg"
+              className="group-data-[collapsible=icon]:justify-center"
+            >
               <Avatar className="size-6">
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
@@ -214,15 +219,25 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
               </span>
             </SidebarMenuButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top">
+          <DropdownMenuContent align="start" side="top" className="w-56">
+            {/* Overrides the default w-(--radix-dropdown-menu-trigger-width)
+                -- when the sidebar is collapsed to icon-only, the trigger
+                button is barely wider than the avatar, which clipped the
+                email down to a sliver. Fixed at w-56 instead (not as wide
+                as the main content), with truncate below as a safety net
+                for an email too long even for that. */}
             <DropdownMenuLabel className="font-normal">
-              <p className="text-sm font-medium">{displayName}</p>
-              <p className="text-xs text-muted-foreground">{user.email}</p>
+              <p className="truncate text-sm font-medium">{displayName}</p>
+              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/dashboard/account">Account</Link>
             </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/privacy">Privacy Policy</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut()}>Log out</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
