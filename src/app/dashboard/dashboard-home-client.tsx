@@ -7,9 +7,7 @@ import {
   CheckCircle2Icon,
   CircleIcon,
   DownloadIcon,
-  MegaphoneIcon,
   MessageCircleIcon,
-  XIcon,
 } from 'lucide-react';
 import {
   Accordion,
@@ -28,12 +26,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import { UsageDonut } from '@/components/charts/usage-donut';
 import { UsageLineChart } from '@/components/charts/usage-line-chart';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { resources } from '@/lib/mock-data/resources';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
 import { AISparkle } from '@/components/ui/ai-sparkle';
+import { useResourceDownload } from '@/hooks/use-resource-download';
 import { cn } from '@/lib/utils';
 import type {
   AccessStatus,
@@ -117,7 +117,8 @@ export function DashboardHomeClient({
   onboarding: OnboardingSignals;
 }) {
   const router = useRouter();
-  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
+  // const [announcementDismissed, setAnnouncementDismissed] = useState(false);
+  const { downloadingId, download } = useResourceDownload();
   const [usage, setUsage] = useState<{
     history: { date: string; tokens: number }[];
     granularity: 'hour' | 'day';
@@ -138,8 +139,11 @@ export function DashboardHomeClient({
         if (!res.ok) throw new Error(`status ${res.status}`);
         return res.json();
       })
-      .then((data: { history: { date: string; tokens: number }[]; granularity: 'hour' | 'day' }) =>
-        setUsage({ history: data.history, granularity: data.granularity })
+      .then(
+        (data: {
+          history: { date: string; tokens: number }[];
+          granularity: 'hour' | 'day';
+        }) => setUsage({ history: data.history, granularity: data.granularity })
       )
       .catch((err) => {
         console.error('[dashboard] load usage failed:', err);
@@ -156,7 +160,7 @@ export function DashboardHomeClient({
 
   return (
     <div className="space-y-12 px-8 py-14">
-      {!announcementDismissed && (
+      {/* {!announcementDismissed && (
         <FadeIn className="flex items-start gap-3 rounded-lg border border-accent-gold/30 bg-accent-gold/10 p-4 text-sm">
           <MegaphoneIcon className="mt-0.5 size-4 shrink-0 text-accent-gold" />
           <p className="flex-1 text-foreground">
@@ -173,7 +177,7 @@ export function DashboardHomeClient({
             <XIcon className="size-4" />
           </Button>
         </FadeIn>
-      )}
+      )} */}
 
       <FadeIn delay={0.05} className="flex items-center justify-between gap-4">
         <div>
@@ -356,11 +360,22 @@ export function DashboardHomeClient({
                     <p className="text-sm font-medium">{resource.title}</p>
                     <p className="text-xs text-muted-foreground">{resource.meta}</p>
                   </div>
-                  {/* Placeholder href — point at real file URLs once they exist. */}
-                  <Button asChild size="icon-sm" variant="ghost">
-                    <a href="#" aria-label={`Download ${resource.title}`}>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    disabled={downloadingId === resource.id}
+                    aria-label={
+                      downloadingId === resource.id
+                        ? `Downloading ${resource.title}...`
+                        : `Download ${resource.title}`
+                    }
+                    onClick={() => download(resource.id, `${resource.title}.pdf`)}
+                  >
+                    {downloadingId === resource.id ? (
+                      <Spinner className="size-4" />
+                    ) : (
                       <DownloadIcon className="size-4" />
-                    </a>
+                    )}
                   </Button>
                 </div>
               ))}
@@ -396,7 +411,7 @@ export function DashboardHomeClient({
         <p className="text-sm text-muted-foreground">
           Need help?{' '}
           <a
-            href="mailto:support@example.com"
+            href="mailto:chima@aipoweredminiexportdollarsystem.online"
             className="font-medium text-primary underline-offset-4 hover:underline"
           >
             Contact support
