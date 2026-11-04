@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ScrollElements } from 'use-stick-to-bottom';
+import type { ScrollElements, StickToBottomContext } from 'use-stick-to-bottom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
@@ -24,8 +24,10 @@ import { verifyAndActivatePayment } from '@/lib/actions/payments-actions';
 import { ACCESS_EXPIRED_MESSAGE } from '@/lib/utils/access-messages';
 import { paymentSuccessCopy } from '@/lib/utils/plan-utils';
 import type { AccessStatus } from '@/lib/utils/user-utils';
+import type { SavedPriceQuote } from '@/lib/actions/pricing-actions';
+import type { ProfileFact } from '@/lib/utils/memory-utils';
 import { starterPrompts } from '../config';
-import { isNextStepsResult, messageHasVisibleContent } from '../_utils';
+import { isSuggestNextStepsResult, messageHasVisibleContent } from '../_utils';
 
 // Where a message blocked by the access-limit bar (402, see onError below)
 // is stashed so it can be resent after an upgrade. A Paystack checkout is
@@ -60,10 +62,23 @@ export function MentorChatClient({
   firstName,
   initialMessages,
   accessStatus,
+  savedPriceQuotes,
+  initialFacts,
 }: {
   firstName: string | null;
   initialMessages: AppMessage[];
   accessStatus: AccessStatus;
+  // Keyed by calculatePricing tool call id -- see page.tsx and
+  // pricing-actions.ts's getPriceQuotesByUser. Only ever set once, from
+  // the server, on page load -- a quote saved live mid-session doesn't
+  // need to flow back in here, since PricingCalculatorPanel's own local
+  // `saved` state already reflects that without a reload.
+  savedPriceQuotes: Record<string, SavedPriceQuote>;
+  // Passed straight through to MentorControlsRail -- this component has
+  // no use for it itself beyond that. Refreshed on every turn via
+  // useChat's onFinish below calling router.refresh(), which re-runs
+  // page.tsx and sends a new value down, not just on page load.
+  initialFacts: ProfileFact[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -86,6 +101,35 @@ export function MentorChatClient({
   // alone for toggles like that, without touching the library itself.
   const suppressAutoScrollRef = useRef(false);
 
+  // Gives this component (an ANCESTOR of <Conversation>, which owns the
+  // actual scrollable element internally) a way to reach that element
+  // from outside it -- use-stick-to-bottom's own escape hatch for exactly
+  // this (StickToBottomProps.contextRef), rather than lifting the whole
+  // instance up here, which would also require re-threading
+  // targetScrollTop's config (see that prop below) into the lifted
+  // instance instead of leaving it as a prop on <Conversation>.
+  const stickToBottomContextRef = useRef<StickToBottomContext | null>(null);
+
+  // The chat column (<Conversation>, flex-1) sits beside
+  // MentorControlsRail (a sibling, not a descendant) -- a wheel scroll
+  // over the rail has nothing of its own to scroll in the common case, so
+  // it silently did nothing instead of scrolling the conversation, same
+  // class of "dead zone" as the dashboard page's own content being
+  // narrower than its scrollable container. Forwarded here rather than
+  // fixed at the layout level, since (unlike the dashboard) the rail and
+  // the conversation are genuinely two different scrollable things, not
+  // one container that's merely too narrow. Skips the Memory section's
+  // own nested ScrollArea (a real, independently scrollable list) so
+  // hovering that specific list still scrolls it, not the conversation.
+  const handleWheelOutsideConversation = useCallback((e: React.WheelEvent) => {
+    const scrollEl = stickToBottomContextRef.current?.scrollRef.current;
+    if (!scrollEl) return;
+    const target = e.target as HTMLElement;
+    if (scrollEl.contains(target)) return;
+    if (target.closest('[data-slot="scroll-area-viewport"]')) return;
+    scrollEl.scrollTop += e.deltaY;
+  }, []);
+
   const handlePanelToggle = useCallback(() => {
     suppressAutoScrollRef.current = true;
     window.setTimeout(() => {
@@ -103,7 +147,7 @@ export function MentorChatClient({
     accessStatus.status === 'expired' ? ACCESS_EXPIRED_MESSAGE : null
   );
 
-  const { setHasMessages, bumpMemoryVersion, bumpUsageVersion } = useMentorChatState();
+  const { setHasMessages, bumpUsageVersion } = useMentorChatState();
 
   const { messages, sendMessage, regenerate, status, setMessages } = useChat<AppMessage>({
     messages: initialMessages,
@@ -115,43 +159,43 @@ export function MentorChatClient({
         },
       }),
     }),
-    // route.ts writes 'refresh-sidebar' only when manageMemory actually
-    // saved something mid-turn, and 'refresh-usage' whenever the turn
-    // recorded real token usage (see that file's comment) -- bump the
-    // matching shared counter MentorControlsRail watches so it refetches,
-    // rather than reaching into the rail's state directly (it's a tree
-    // sibling, not a descendant -- see mentor-context.tsx).
+    // route.ts writes 'refresh-usage' whenever the turn recorded real
+    // token usage (see that file's comment) -- bump the shared counter
+    // MentorControlsRail watches so it refetches, rather than reaching
+    // into the rail's state directly (it's a tree sibling, not a
+    // descendant -- see mentor-context.tsx). Memory has no equivalent
+    // data part -- see onFinish below instead.
     onData: (dataPart) => {
       if (dataPart.type !== 'data-frontend-action') return;
-      if (dataPart.data === 'refresh-sidebar') bumpMemoryVersion();
       if (dataPart.data === 'refresh-usage') bumpUsageVersion();
+      // Matt Pocock's course uses a push-based data part for this (its
+      // own name, 'refresh-sidebar' -- not a label that ever meant
+      // anything here), fired the moment memory is actually saved
+      // rather than waiting for the whole turn to finish. Left commented
+      // out, not wired up, because it has nothing to fire on in this
+      // codebase: extractAndUpdateMemory runs in route.ts's onFinish,
+      // which has no `writer` to push a data part through mid-stream --
+      // only `execute` has that, and moving extraction back there was
+      // explicitly ruled out. If the onFinish-only router.refresh() below
+      // ever proves too slow or unreliable in practice, doing this for
+      // real means adding a new data part to AppMessage's frontend-action
+      // union AND writing it from `execute` (e.g. right after
+      // persistence, as a second pass) -- not just uncommenting a line.
+      // if (dataPart.data === 'memory-saved') router.refresh();
     },
-    // checkMentorChatLimits (route.ts's _utils.ts) returns a plain-text
-    // body on a blocked request (trial budget used up, rate-limited, or
-    // expired access) -- the AI SDK's own createUIApiCallError reads a
-    // non-OK response's body as-is into error.message when there's no
-    // JSON envelope to unwrap (it also attaches the response's own status
-    // as error.statusCode), so this is already the exact human sentence
-    // to show, no parsing needed.
-    //
-    // 402 (budget exhausted or expired) is the persistent access-limit
-    // bar, not a toast -- it doesn't go away on its own, so neither should
-    // the reminder. 429 (temporary rate limit) stays a toast -- it clears
-    // itself once the rolling window ages out, which a sticky bar would
-    // overstate.
-    //
-    // statusCode undefined (not just some other number) means the request
-    // never got an HTTP response at all -- offline, DNS failure, CORS, a
-    // dropped connection mid-flight (createUIApiCallError only ever sets
-    // statusCode from a real Response, see its own source) -- same as a
-    // genuine 5xx from the route itself: both mean "this reply never
-    // happened," not "you're not allowed to." Those get a friendly message
-    // instead of the raw fetch error text ("Failed to fetch" means nothing
-    // to a user) plus a Retry action wired to regenerate(), which re-sends
-    // the exact same turn rather than requiring them to retype it -- safe
-    // here because the failure happened without ever leaving the page, so
-    // the user message is still sitting right there in `messages` for
-    // regenerate() to resend from.
+    // The deterministic memory extraction (lib/mentor/memory-extraction.ts)
+    // runs server-side in route.ts's onFinish, which has no `writer` to
+    // push a signal back through mid-stream -- so instead of a data part,
+    // this just re-runs page.tsx's server-side data fetch once the whole
+    // reply is in, which re-fetches this user's profile facts and sends a
+    // fresh `initialFacts` prop down to MentorControlsRail. Unconditional
+    // (not only when something was actually saved) since there's no cheap
+    // way to know that client-side anymore -- a router.refresh() that
+    // finds nothing changed is harmless, just a wasted round trip.
+    onFinish: () => {
+      router.refresh();
+    },
+
     onError: (error) => {
       const statusCode = 'statusCode' in error ? error.statusCode : undefined;
 
@@ -189,35 +233,46 @@ export function MentorChatClient({
     });
   }, [setMessages]);
 
+  // Every outgoing user message's own createdAt, set client-side here --
+  // the only place a user message actually gets sent, across every entry
+  // point below (typed, a suggestion chip, a stashed resend, the pricing
+  // calculator's save). See route.ts's AppMessage comment for why the
+  // timestamp lives in message metadata (lib/utils/time-utils.ts reads it
+  // back out for display).
+  const sendUserMessage = useCallback(
+    (text: string) =>
+      sendMessage({ text, metadata: { createdAt: new Date().toISOString() } }),
+    [sendMessage]
+  );
+
   // Came here from a suggestion chip elsewhere (e.g. the dashboard home
   // card) via ?prompt= — auto-send it once on arrival.
   useEffect(() => {
     if (initialPrompt && !hasAutoSubmittedRef.current) {
       hasAutoSubmittedRef.current = true;
       lastSentTextRef.current = initialPrompt;
-      sendMessage({ text: initialPrompt });
+      sendUserMessage(initialPrompt);
     }
-  }, [initialPrompt, sendMessage]);
+  }, [initialPrompt, sendUserMessage]);
 
   const handleSubmit = useCallback(
     (text: string) => {
       lastSentTextRef.current = text;
-      sendMessage({ text });
+      sendUserMessage(text);
     },
-    [sendMessage]
+    [sendUserMessage]
   );
 
-  // Eva's own personalized suggestions for this conversation, written
-  // deterministically after every reply with real text (see
-  // lib/mentor/next-steps.ts), not a tool she decides whether to call.
-  // Looked up from the most recent assistant message, not necessarily the
-  // very last message overall, so the chips from her last turn stay
-  // visible while the next reply is still streaming in rather than
-  // disappearing and reappearing. Computed up here (not down with the
-  // other derived values below) because handleSuggestionClick needs
-  // lastAssistantMessage's id too.
+  // Eva's own personalized suggestions for this conversation, read off
+  // the most recent assistant turn that actually called suggestNextSteps
+  // (see suggest-next-steps-tool.ts). Looked up from the most recent
+  // assistant message, not necessarily the very last message overall, so
+  // the chips from her last turn stay visible while the next reply is
+  // still streaming in rather than disappearing and reappearing.
+  // Computed up here (not down with the other derived values below)
+  // because handleSuggestionClick needs lastAssistantMessage's id too.
   const lastAssistantMessage = messages.filter((m) => m.role === 'assistant').at(-1);
-  const dynamicSuggestions = lastAssistantMessage?.parts.find(isNextStepsResult);
+  const dynamicSuggestions = lastAssistantMessage?.parts.find(isSuggestNextStepsResult);
   const lastAssistantMessageId = lastAssistantMessage?.id ?? null;
 
   // Two guards against a chip click being actioned twice, for two
@@ -243,7 +298,7 @@ export function MentorChatClient({
     suggestionClickedForIdRef.current = lastAssistantMessageId;
     setDismissedMessageId(lastAssistantMessageId);
     lastSentTextRef.current = sugg;
-    sendMessage({ text: sugg });
+    sendUserMessage(sugg);
   }
   // The lastAssistantMessageId !== null guard matters -- without it, the
   // initial "no assistant message yet, dismissedMessageId still null"
@@ -277,7 +332,7 @@ export function MentorChatClient({
       if (!pending) return;
       setAccessLimitMessage(null);
       toast('Resending your message...');
-      sendMessage({ text: pending });
+      sendUserMessage(pending);
     }
 
     const reference = searchParams.get('reference') ?? searchParams.get('trxref');
@@ -308,7 +363,7 @@ export function MentorChatClient({
         toast("We couldn't confirm that payment. Try again from the Upgrade page.");
       }
     });
-  }, [searchParams, accessStatus, router, sendMessage]);
+  }, [searchParams, accessStatus, router, sendUserMessage]);
 
   const isEmpty = messages.length === 0;
 
@@ -405,50 +460,61 @@ export function MentorChatClient({
   // row the instant one of its own chips gets clicked, rather than
   // leaving it clickable (and re-sendable) for however long it takes
   // Eva's next reply to actually arrive.
-  const chatSuggestions = !suggestionsDismissed && dynamicSuggestions?.data?.suggestions?.length ? (
-    <Suggestions>
-      {dynamicSuggestions.data.suggestions.map((suggestion) => (
-        <Suggestion
-          key={suggestion}
-          suggestion={suggestion}
-          onClick={handleSuggestionClick}
-        />
-      ))}
-    </Suggestions>
-  ) : null;
+  const chatSuggestions =
+    !suggestionsDismissed && dynamicSuggestions?.output?.suggestions?.length ? (
+      <Suggestions>
+        {dynamicSuggestions.output.suggestions.map((suggestion) => (
+          <Suggestion
+            key={suggestion}
+            suggestion={suggestion}
+            onClick={handleSuggestionClick}
+          />
+        ))}
+      </Suggestions>
+    ) : null;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full" onWheel={handleWheelOutsideConversation}>
       <MentorControlsRail
         onClearChat={handleClearChat}
         hasMessages={messages.length > 0}
         accessStatus={accessStatus}
+        initialFacts={initialFacts}
       />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-8 pt-4 pb-6">
+      {/* No horizontal padding on this column itself -- that would inset
+          Conversation's own scrollable box (and so its native scrollbar)
+          away from the panel's true right edge, same issue the dashboard
+          page had. The px-8 that used to live here instead moves to
+          ConversationContent (inside the scrollable box, so it only
+          indents the message content, not the scrollbar) and to the
+          wrapper around Container below (which needs its own copy now
+          that it can no longer inherit it from here). */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden pt-4 pb-6">
         <Conversation
           className="min-h-0 flex-1"
+          contextRef={stickToBottomContextRef}
           targetScrollTop={(targetScrollTop, { scrollElement }: ScrollElements) =>
             suppressAutoScrollRef.current ? scrollElement.scrollTop : targetScrollTop
           }
         >
-          <ConversationContent
-            className="mb-16 flex flex-col"
-            scrollClassName="scrollbar-none"
-          >
+          <ConversationContent className="mb-16 flex flex-col px-8">
             <ConversationMessages
               messages={visibleMessages}
               showLoadingIndicator={showLoadingIndicator}
               onPanelToggle={handlePanelToggle}
-              onSendMessage={(text) => sendMessage({ text })}
+              onSendMessage={sendUserMessage}
+              savedPriceQuotes={savedPriceQuotes}
             />
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
 
-        <Container className="shrink-0 space-y-3 pt-4">
-          {chatSuggestions}
-          {promptInput}
-        </Container>
+        <div className="px-8">
+          <Container className="shrink-0 space-y-3 pt-4">
+            {chatSuggestions}
+            {promptInput}
+          </Container>
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
+import { Container } from '@/components/layout/container';
 
 // Every dashboard page reads comfortably at a centered, capped width --
 // except the mentor page, which now carves its own width into a chat
@@ -14,6 +14,26 @@ export function DashboardMain({ children }: { children: React.ReactNode }) {
   const isMentor = pathname?.startsWith('/dashboard/mentor') ?? false;
 
   return (
-    <div className={cn('h-[100svh] w-full', !isMentor && 'mx-auto max-w-3xl')}>{children}</div>
+    // overflow-y-auto is the actual fix here -- without it, content taller
+    // than 100svh doesn't get clipped by this fixed-height box, it just
+    // paints past it (CSS overflow:visible is the default), spilling out
+    // past SidebarInset's rounded bottom edge onto the bare page canvas
+    // below. That's what made every section below the fold look like its
+    // own separately-floating white card instead of one continuous
+    // scrollable panel. Harmless on the mentor route too -- its own
+    // internal layout already fits exactly within 100svh, so this never
+    // actually needs to scroll there.
+    //
+    // The width cap lives on Container (an inner wrapper), not this
+    // scrolling div itself -- putting it here too would narrow the
+    // scrollable box down to just that centered column, so a
+    // wheel/trackpad scroll only did anything with the cursor directly
+    // over the content. This outer div stays full width (the whole
+    // SidebarInset panel), so scrolling works anywhere in the panel,
+    // including the empty margins left/right of the centered column; only
+    // the content inside is capped and centered.
+    <div className="h-[100svh] w-full overflow-y-auto">
+      {isMentor ? children : <Container>{children}</Container>}
+    </div>
   );
 }

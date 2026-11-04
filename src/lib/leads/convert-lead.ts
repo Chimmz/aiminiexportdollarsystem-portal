@@ -21,22 +21,60 @@ import { createAccessPeriodForPayment } from "@/lib/actions/access-actions";
 // their current period right away instead of silently never activating,
 // since activated_at is already set and nothing would otherwise flip it
 // again.
+//
+// Also backfills users.full_name/phone from whatever the checkout form on
+// mini-export-web collected, since that's otherwise the only place that
+// name/phone ever existed -- the profile-edit form on the Account page has
+// no write path yet (see CLAUDE.md's known gaps), so without this a buyer
+// who paid with their real name/phone would sign in to a blank profile.
+// Only fills a currently-blank field, never overwrites something the user
+// already set themselves.
 export async function convertLeadForUser(userId: string, email: string) {
   const supabase = createServiceClient();
 
   const { data: lead } = await supabase
     .from("leads")
-    .select("id, converted_user_id")
+    .select("id, name, phone, converted_user_id")
     .ilike("email", email)
     .maybeSingle();
 
   if (!lead) return;
 
   if (!lead.converted_user_id) {
-    await supabase
+    const { error: leadUpdateError } = await supabase
       .from("leads")
       .update({ converted_user_id: userId, funnel_stage: "converted" })
       .eq("id", lead.id);
+    if (leadUpdateError) {
+      console.error("[convert-lead] leads update failed:", leadUpdateError.message);
+    }
+  }
+
+  if (lead.name || lead.phone) {
+    const { data: user } = await supabase
+      .from("users")
+      .select("full_name, phone")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const profileUpdates: Record<string, string> = {};
+    if (lead.name && !user?.full_name) profileUpdates.full_name = lead.name;
+    if (lead.phone && !user?.phone) profileUpdates.phone = lead.phone;
+
+    if (Object.keys(profileUpdates).length > 0) {
+      // Never check/surface this before now -- a failure here (e.g. a
+      // schema mismatch, the exact class of bug the leads.phone column
+      // hit earlier this session) previously failed silently, with
+      // nothing in the logs to explain why a buyer's profile stayed
+      // blank.
+      const { error: userUpdateError } = await supabase
+        .from("users")
+        .update(profileUpdates)
+        .eq("id", userId);
+      if (userUpdateError) {
+        console.error("[convert-lead] users profile backfill failed:", userUpdateError.message);
+      }
+    }
   }
 
   const { data: unlinkedPayments } = await supabase
@@ -57,12 +95,21 @@ export async function convertLeadForUser(userId: string, email: string) {
   for (const payment of unlinkedPayments) {
     const plan = planById.get(payment.plan_id);
     // Plan was removed/renamed since purchase (shouldn't happen, but skip
-    // rather than guess a duration), or it's a base-product purchase (e.g.
-    // 'pdf-guide') that was never meant to grant AI access in the first
-    // place — see migrations/0015's grants_ai_access.
-    if (!plan || !plan.grants_ai_access) continue;
+    // rather than guess a duration) -- nothing to backfill or link here.
+    if (!plan) continue;
 
+    // Backfill user_id regardless of grants_ai_access, so every purchase
+    // this lead ever made (including a base product like 'pdf-guide')
+    // shows up under their account and passes the "payments select own
+    // row" RLS check -- only the access-period grant below is
+    // AI-plan-specific.
     await supabase.from("payments").update({ user_id: userId }).eq("id", payment.id);
+
+    // 'pdf-guide' and other non-AI products (see migrations/0015's
+    // grants_ai_access) are linked above but were never meant to grant an
+    // access_period.
+    if (!plan.grants_ai_access) continue;
+
     await createAccessPeriodForPayment({
       userId,
       paymentId: payment.id,
