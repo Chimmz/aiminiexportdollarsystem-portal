@@ -40,10 +40,12 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const isAuthed = Boolean(data?.claims);
 
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
 
   if (pathname.startsWith("/dashboard") && !isAuthed) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+    const signInUrl = new URL("/sign-in", request.url);
+    signInUrl.searchParams.set("next", `${pathname}${search}`);
+    return NextResponse.redirect(signInUrl);
   }
 
   if (pathname === "/sign-in" && isAuthed) {

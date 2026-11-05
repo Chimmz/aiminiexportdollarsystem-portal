@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState } from 'react';
+import { Suspense, useActionState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
   AlertCircleIcon,
@@ -26,9 +27,23 @@ const initialState: SendMagicLinkState = { status: 'idle' };
 // previous pass (a generic "feature zone" treatment also used on the
 // dashboard home and payment-callback pages, see globals.css), just in
 // the app's own brand tokens instead of Eva's AI-specific gradient.
+//
+// Wrapped in Suspense because SignInForm reads useSearchParams (the
+// "next" path proxy.ts attaches when it bounces a signed-out visitor off
+// /dashboard/* -- see actions.ts and auth/callback/route.ts for where
+// that value goes next).
 export default function SignInPage() {
+  return (
+    <Suspense>
+      <SignInForm />
+    </Suspense>
+  );
+}
+
+function SignInForm() {
   const [state, action, pending] = useActionState(sendMagicLink, initialState);
   const isSent = state.status === 'sent';
+  const next = useSearchParams().get('next') ?? '';
 
   return (
     <div className="relative isolate flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 py-16">
@@ -41,7 +56,10 @@ export default function SignInPage() {
       />
 
       <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
-        <Link href="/" className="text-sm font-semibold leading-relaxed text-foreground">
+        <Link
+          href="/"
+          className="mb-4 text-sm font-semibold leading-relaxed text-foreground"
+        >
           The AI-Powered Mini Export
           <br />
           <span className="text-accent-gold">Dollar System</span>
@@ -68,10 +86,11 @@ export default function SignInPage() {
             </div>
           ) : (
             <form action={action} className="w-full space-y-3">
+              <input type="hidden" name="next" value={next} />
               <label htmlFor="email" className="sr-only">
                 Email
               </label>
-              <InputGroup className="h-14 rounded-full px-2 shadow-soft">
+              <InputGroup className="h-14 rounded-full px-2  bg-white! shadow-soft">
                 <InputGroupInput
                   id="email"
                   name="email"
@@ -107,7 +126,10 @@ export default function SignInPage() {
           )}
         </FadeIn>
 
-        <Link href="/privacy" className="text-xs text-muted-foreground underline hover:text-foreground">
+        <Link
+          href="/privacy"
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+        >
           Privacy Policy
         </Link>
       </div>

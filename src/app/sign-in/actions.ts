@@ -2,6 +2,7 @@
 
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { safeRedirectPath } from "@/lib/utils/redirect-utils";
 
 export type SendMagicLinkState =
   | { status: "idle" }
@@ -24,11 +25,17 @@ export async function sendMagicLink(
   // Supabase's redirect-URL allow-list before it ever sends anything.
   const origin = (await headers()).get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL;
 
+  // Carried from proxy.ts's redirect (via the sign-in form's hidden
+  // "next" input, see page.tsx) through to auth/callback/route.ts, so a
+  // visitor bounced off e.g. /dashboard/mentor lands back on that exact
+  // page once they click the link, not just the dashboard home.
+  const next = safeRedirectPath(String(formData.get("next") ?? ""), "/dashboard");
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${origin}/auth/callback`,
+      emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
     },
   });
 
