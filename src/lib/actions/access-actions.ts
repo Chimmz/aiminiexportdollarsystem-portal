@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service';
+import { sendTrialUpgradePromptEmail } from '@/lib/actions/email-actions';
 
 // The two halves of the activation/extension algorithm documented on
 // access_periods in supabase/schema_app.sql. Shared by convert-lead.ts
@@ -80,11 +81,19 @@ export async function activateUserOnFirstMessage(userId: string): Promise<void> 
     .is('starts_at', null)
     .order('created_at', { ascending: true });
 
-  const { error: userError } = await supabase
+  // .is('activated_at', null) on the WHERE clause, not just the read
+  // above, is what makes this safe against a concurrent duplicate call
+  // (see creditPayment in payments-actions.ts for the same pattern) --
+  // only the call that actually flips the row gets a row back here, so
+  // `claimed` doubles as "did I win the race" and "the email fields I
+  // need," in one round trip.
+  const { data: claimed, error: userError } = await supabase
     .from('users')
     .update({ activated_at: now.toISOString() })
     .eq('id', userId)
-    .is('activated_at', null);
+    .is('activated_at', null)
+    .select('email, full_name')
+    .maybeSingle();
   if (userError) throw new Error(`activate user: ${userError.message}`);
 
   let cursor = now;
@@ -97,5 +106,25 @@ export async function activateUserOnFirstMessage(userId: string): Promise<void> 
       .eq('id', period.id);
     if (error) throw new Error(`activate access_period ${period.id}: ${error.message}`);
     cursor = endsAt;
+  }
+
+  // Only when this really is a trial start -- no already-purchased plan
+  // was waiting to chain in above. Someone who paid for an AI plan before
+  // ever chatting shouldn't get a "your trial is expiring" email the
+  // first time they open the mentor, since what just activated for them
+  // is the plan they paid for, not a trial. Best-effort: a send failure
+  // here must never fail activation itself.
+  if (claimed?.email && (unactivatedPeriods ?? []).length === 0) {
+    try {
+      const siteOrigin =
+        process.env.NEXT_PUBLIC_SITE_URL ?? 'https://account.aipoweredminiexportdollarsystem.online';
+      await sendTrialUpgradePromptEmail({
+        to: claimed.email,
+        firstName: claimed.full_name?.trim().split(' ')[0] || 'there',
+        upgradeUrl: `${siteOrigin}/dashboard/upgrade`,
+      });
+    } catch (err) {
+      console.error('[access] trial upgrade prompt email failed:', err);
+    }
   }
 }

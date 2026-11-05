@@ -5,7 +5,9 @@ import { headers } from 'next/headers';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getCurrentUser } from '@/lib/actions/user-actions';
 import { createAccessPeriodForPayment } from '@/lib/actions/access-actions';
+import { sendUpgradeReceiptEmail } from '@/lib/actions/email-actions';
 import { initializeTransaction, verifyTransaction } from '@/lib/payments/paystack';
+import { formatPlanPrice } from '@/lib/utils/plan-utils';
 
 // The in-portal counterpart to convert-lead.ts's sales-site flow: an
 // already-signed-in member buying/renewing a plan from the dashboard
@@ -74,7 +76,8 @@ export async function initiatePlanPurchase(
     .insert({
       user_id: user.id,
       plan_id: plan.id,
-      paystack_reference: reference,
+      payment_reference: reference,
+      gateway: 'paystack',
       amount_kobo: plan.price_kobo,
       status: 'pending',
     })
@@ -139,7 +142,7 @@ export async function verifyAndActivatePayment(
   const { data: payment } = await supabase
     .from('payments')
     .select('id, user_id, plan_id, amount_kobo, status')
-    .eq('paystack_reference', reference)
+    .eq('payment_reference', reference)
     .maybeSingle();
 
   // Ownership check: a tampered callback URL (someone else's reference)
@@ -195,7 +198,7 @@ export async function creditPayment(params: {
 
   const { data: plan } = await supabase
     .from('plans')
-    .select('duration_days')
+    .select('label, duration_days')
     .eq('id', params.planId)
     .single();
   if (!plan) return false;
@@ -205,7 +208,7 @@ export async function creditPayment(params: {
     .update({ status: 'success', paid_at: new Date().toISOString() })
     .eq('id', params.paymentId)
     .eq('status', 'pending')
-    .select('id')
+    .select('id, payment_reference, amount_kobo, paid_at')
     .maybeSingle();
   if (!claimed) return true; // already credited by the other path — not an error
 
@@ -214,5 +217,43 @@ export async function creditPayment(params: {
     paymentId: params.paymentId,
     durationDays: plan.duration_days,
   });
+
+  // Best-effort, fired from the one path that actually just claimed this
+  // payment (the !claimed branch above already returned for the other
+  // caller), so this can only ever run once per payment. A send failure
+  // must never undo or re-flag the access that was just credited for
+  // real -- caught and logged, not propagated.
+  try {
+    const [{ data: user }, endsAt] = await Promise.all([
+      supabase.from('users').select('email, full_name').eq('id', params.userId).single(),
+      getAccessPeriodEndsAt(params.paymentId),
+    ]);
+    if (user?.email) {
+      const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://account.aipoweredminiexportdollarsystem.online';
+      await sendUpgradeReceiptEmail({
+        to: user.email,
+        firstName: user.full_name?.trim().split(' ')[0] || 'there',
+        planLabel: plan.label,
+        amountPaid: formatPlanPrice(claimed.amount_kobo),
+        paymentReference: claimed.payment_reference,
+        paidAtFormatted: new Date(claimed.paid_at).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        accessUntilFormatted: endsAt
+          ? new Date(endsAt).toLocaleDateString('en-US', {
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric',
+            })
+          : null,
+        mentorUrl: `${siteOrigin}/dashboard/mentor`,
+      });
+    }
+  } catch (err) {
+    console.error('[payments] upgrade receipt email failed:', err);
+  }
+
   return true;
 }

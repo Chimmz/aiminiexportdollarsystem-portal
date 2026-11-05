@@ -11,6 +11,7 @@
   "dependencies": {
     "@ai-sdk/react": "^4.0.140",
     "@radix-ui/react-use-controllable-state": "^1.2.6",
+    "@react-email/render": "^2.2.0",
     "@streamdown/cjk": "^1.0.4",
     "@streamdown/code": "^2.0.0",
     "@streamdown/math": "^1.0.3",
@@ -32,7 +33,9 @@
     "radix-ui": "^1.7.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-email": "^6.11.6",
     "recharts": "3.8.0",
+    "resend": "^6.37.0",
     "shadcn": "^4.21.4",
     "sonner": "^2.0.8",
     "streamdown": "^2.7.0",
