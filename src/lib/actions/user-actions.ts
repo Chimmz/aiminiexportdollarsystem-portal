@@ -21,7 +21,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
 
   const { data: userRow } = await supabase
     .from("users")
-    .select("id, email, full_name, company_name, created_at, activated_at")
+    .select("id, email, full_name, company_name, created_at, activated_at, role")
     .eq("id", claims.claims.sub)
     .single();
   if (!userRow) return null;
@@ -33,6 +33,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     companyName: userRow.company_name,
     createdAt: userRow.created_at,
     activatedAt: userRow.activated_at,
+    role: userRow.role as CurrentUser["role"],
   };
 });
 
@@ -54,21 +55,30 @@ export const requireCurrentUser = cache(async (): Promise<{
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
 
-  const [{ data: accessRow }, { data: currentPeriod }, trialTokensUsed] = await Promise.all([
-    supabase
-      .from("user_access_status")
-      .select("status, paid_access_until")
-      .eq("user_id", user.id)
-      .single(),
-    supabase
-      .from("access_periods")
-      .select("payment:payments(plan_id)")
-      .eq("user_id", user.id)
-      .lte("starts_at", nowIso)
-      .gt("ends_at", nowIso)
-      .maybeSingle(),
-    getLifetimeTokenUsage(user.id),
-  ]);
+  const [{ data: accessRow }, { data: currentPeriod }, { data: recentPayment }, trialTokensUsed] =
+    await Promise.all([
+      supabase
+        .from("user_access_status")
+        .select("status, paid_access_until")
+        .eq("user_id", user.id)
+        .single(),
+      supabase
+        .from("access_periods")
+        .select("payment:payments(plan_id)")
+        .eq("user_id", user.id)
+        .lte("starts_at", nowIso)
+        .gt("ends_at", nowIso)
+        .maybeSingle(),
+      supabase
+        .from("payments")
+        .select("plan_id")
+        .eq("user_id", user.id)
+        .eq("status", "success")
+        .order("paid_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      getLifetimeTokenUsage(user.id),
+    ]);
 
   if (!accessRow) {
     redirect("/sign-in");
@@ -86,6 +96,7 @@ export const requireCurrentUser = cache(async (): Promise<{
       status: accessRow.status,
       paidAccessUntil: accessRow.paid_access_until,
       currentPlanId: currentPayment?.plan_id ?? null,
+      recentPaymentPlanId: recentPayment?.plan_id ?? null,
       trialTokensUsed,
       trialTokenBudget: TRIAL_TOKEN_BUDGET,
     },

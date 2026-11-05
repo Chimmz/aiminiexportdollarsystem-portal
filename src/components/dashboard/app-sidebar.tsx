@@ -42,11 +42,13 @@ const navItems = [
 ];
 
 // /dev/rag-lab 404s itself in production (burns real embedding-API credits
-// per click) — this link is hidden there too, so it's never a dead click.
-const devNavItems =
-  process.env.NODE_ENV === 'production'
-    ? []
-    : [{ href: '/dev/rag-lab', label: 'RAG Lab', icon: FlaskConicalIcon }];
+// per click) and gates on role === 'admin' (see page.tsx) -- this link is
+// hidden under the same two conditions, so it's never a dead click and
+// never dangled in front of a non-admin who's just in a dev build.
+function devNavItemsFor(user: CurrentUser): NavItem[] {
+  if (process.env.NODE_ENV === 'production' || user.role !== 'admin') return [];
+  return [{ href: '/dev/rag-lab', label: 'RAG Lab', icon: FlaskConicalIcon }];
+}
 
 function displayNameFor(user: CurrentUser) {
   return user.fullName?.trim() || user.email.split('@')[0];
@@ -73,6 +75,7 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
   const pathname = usePathname();
   const displayName = displayNameFor(user);
   const initials = initialsFor(user);
+  const devNavItems = devNavItemsFor(user);
   const { setOpen } = useSidebar();
   const { hasMessages } = useMentorChatState();
 

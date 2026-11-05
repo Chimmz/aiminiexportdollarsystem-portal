@@ -1,3 +1,5 @@
+export type UserRole = 'user' | 'staff' | 'admin';
+
 export type CurrentUser = {
   id: string;
   email: string;
@@ -8,6 +10,9 @@ export type CurrentUser = {
   // supabase/schema_app.sql) — doubles as "has this person used the AI at
   // least once," since nothing else in the schema tracks that yet.
   activatedAt: string | null;
+  // See migrations/0027_users_role.sql -- 'user' for everyone except the
+  // handful of internal accounts explicitly promoted in the DB.
+  role: UserRole;
 };
 
 export type AccessStatus = {
@@ -19,6 +24,14 @@ export type AccessStatus = {
   // effect" at a given moment, so this is well-defined despite that —
   // it's just not the same thing as "the only plan they've ever bought."
   currentPlanId: string | null;
+  // The plan_id of this user's most recent successful payment, regardless
+  // of whether it ever granted AI access (so this can be 'pdf-guide',
+  // unlike currentPlanId above, which only ever reflects an AI-access
+  // plan). Lets the dashboard tell apart someone who's never paid for
+  // anything from someone who bought the guide but hasn't upgraded to an
+  // AI plan yet -- both are status 'trial', but only the latter should
+  // read as "Free plan" instead of "Free trial".
+  recentPaymentPlanId: string | null;
   // Real, provider-reported lifetime token usage (token_usage table) and
   // the lifetime budget it's measured against (TRIAL_TOKEN_BUDGET, see
   // lib/mentor/limits.ts) -- replaces the old message-count-based
