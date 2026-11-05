@@ -2,13 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import {
-  CheckCircle2Icon,
-  CircleIcon,
-  DownloadIcon,
-  MessageCircleIcon,
-} from 'lucide-react';
+import { ArrowRightIcon, MegaphoneIcon, MessageCircleIcon } from 'lucide-react';
 import {
   Accordion,
   AccordionContent,
@@ -26,37 +20,15 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
 import { UsageDonut } from '@/components/charts/usage-donut';
 import { UsageLineChart } from '@/components/charts/usage-line-chart';
-import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { resources } from '@/lib/mock-data/resources';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
 import { AISparkle } from '@/components/ui/ai-sparkle';
-import { useResourceDownload } from '@/hooks/use-resource-download';
+import { formatRecentTimestamp } from '@/lib/utils/date-utils';
+import { planBadgeLabel } from '@/lib/utils/plan-utils';
 import { cn } from '@/lib/utils';
-import type {
-  AccessStatus,
-  CurrentUser,
-  OnboardingSignals,
-} from '@/lib/utils/user-utils';
-
-// The chat/mentor itself isn't built yet, so the recent-conversation
-// preview and suggestion prompts below are still presentational mock data
-// — the buyer identity, plan/trial status, and onboarding checkmarks above
-// them are real, pulled via the DAL in page.tsx.
-
-const mockRecentConversation = {
-  preview:
-    '...so for a 20ft container of dried hibiscus, quote in USD per kg and let the buyer handle freight from the port...',
-  updatedAt: 'Yesterday, 4:12 PM',
-};
-
-const mockSuggestions = [
-  'What should I quote a buyer in dollars?',
-  'How do I verify a buyer is real before shipping?',
-  'Draft a follow-up email for a slow-paying buyer',
-];
+import type { AccessStatus, CurrentUser } from '@/lib/utils/user-utils';
 
 const faqItems = [
   {
@@ -101,24 +73,16 @@ function memberSinceFor(user: CurrentUser) {
   });
 }
 
-function planBadgeLabel(status: AccessStatus['status']) {
-  if (status === 'active') return 'Active plan';
-  if (status === 'expired') return 'Access expired';
-  return 'Free trial';
-}
-
 export function DashboardHomeClient({
   user,
   accessStatus,
-  onboarding,
+  recentMessage,
 }: {
   user: CurrentUser;
   accessStatus: AccessStatus;
-  onboarding: OnboardingSignals;
+  recentMessage: { text: string; createdAt: string } | null;
 }) {
-  const router = useRouter();
   // const [announcementDismissed, setAnnouncementDismissed] = useState(false);
-  const { downloadingId, download } = useResourceDownload();
   const [usage, setUsage] = useState<{
     history: { date: string; tokens: number }[];
     granularity: 'hour' | 'day';
@@ -151,15 +115,27 @@ export function DashboardHomeClient({
       });
   }, []);
 
-  const handleSuggestionClick = (suggestion: string) => {
-    router.push(`/dashboard/mentor?prompt=${encodeURIComponent(suggestion)}`);
-  };
-
   const displayName = displayNameFor(user);
   const initials = initialsFor(user);
 
   return (
     <div className="space-y-12 px-8 py-14">
+      {accessStatus.status === 'trial' && (
+        <FadeIn className="flex items-center gap-3 rounded-lg border border-accent-gold/30 bg-accent-gold/10 p-4 text-sm">
+          <MegaphoneIcon className="size-4 shrink-0 text-accent-gold" />
+          <p className="flex-1 text-foreground">
+            Your guide comes with a fast-expiring free trial with your mentor.
+          </p>
+          <Link
+            href="/dashboard/upgrade"
+            className="shrink-0 font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Upgrade your AI mentor &rarr;
+          </Link>
+        </FadeIn>
+      )}
+
+      {/* Dont delete this */}
       {/* {!announcementDismissed && (
         <FadeIn className="flex items-start gap-3 rounded-lg border border-accent-gold/30 bg-accent-gold/10 p-4 text-sm">
           <MegaphoneIcon className="mt-0.5 size-4 shrink-0 text-accent-gold" />
@@ -219,29 +195,19 @@ export function DashboardHomeClient({
                 </CardDescription>
               </div>
               <Badge variant={accessStatus.status === 'trial' ? 'secondary' : 'default'}>
-                {planBadgeLabel(accessStatus.status)}
+                {planBadgeLabel(accessStatus)}
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {accessStatus.status === 'trial' && (
+          {accessStatus.status === 'trial' && (
+            <CardContent>
               <UsageDonut
                 value={accessStatus.trialTokensUsed}
                 max={accessStatus.trialTokenBudget}
                 label="of your free trial used"
               />
-            )}
-
-            <Suggestions>
-              {mockSuggestions.map((suggestion) => (
-                <Suggestion
-                  key={suggestion}
-                  suggestion={suggestion}
-                  onClick={handleSuggestionClick}
-                />
-              ))}
-            </Suggestions>
-          </CardContent>
+            </CardContent>
+          )}
           <CardFooter className="gap-3">
             <Button
               asChild
@@ -280,18 +246,20 @@ export function DashboardHomeClient({
 
       <FadeIn
         delay={0.15}
-        className={cn('grid gap-6', onboarding.hasSentFirstMessage && 'sm:grid-cols-2')}
+        className={cn('grid gap-6', recentMessage && 'sm:grid-cols-2')}
       >
-        {onboarding.hasSentFirstMessage && (
+        {recentMessage && (
           <HoverLift>
             <Card className="bg-gradient-to-br from-background-subtle to-background">
               <CardHeader>
                 <CardTitle className="text-base">Continue where you left off</CardTitle>
-                <CardDescription>{mockRecentConversation.updatedAt}</CardDescription>
+                <CardDescription>
+                  {formatRecentTimestamp(recentMessage.createdAt)}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="line-clamp-3 text-sm text-muted-foreground">
-                  {mockRecentConversation.preview}
+                <p className="line-clamp-3 text-sm text-muted-foreground italic">
+                  {recentMessage.text}
                 </p>
               </CardContent>
               <CardFooter>
@@ -306,36 +274,26 @@ export function DashboardHomeClient({
         <HoverLift>
           <Card className="bg-gradient-to-br from-background-subtle to-background">
             <CardHeader>
-              <CardTitle className="text-base">Getting started</CardTitle>
-              <CardDescription>A short checklist for your first week.</CardDescription>
+              <CardTitle className="text-base">Quick links</CardTitle>
+              <CardDescription>
+                Everything from your purchase, in one place.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                {[
-                  // Neither of these is derivable from anything in the schema
-                  // yet — no resource-view/download tracking exists. Always
-                  // shown unchecked until that's built.
-                  { label: 'Read the main guide', done: false },
-                  { label: 'Download your contact lists', done: false },
-                  {
-                    label: 'Ask Eva your first question',
-                    done: onboarding.hasSentFirstMessage,
-                  },
-                ].map((item) => (
-                  <li key={item.label} className="flex items-center gap-2 text-sm">
-                    {item.done ? (
-                      <CheckCircle2Icon className="size-4 shrink-0 text-primary" />
-                    ) : (
-                      <CircleIcon className="size-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <span
-                      className={item.done ? 'text-muted-foreground line-through' : ''}
-                    >
-                      {item.label}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <CardContent className="space-y-1">
+              <Link
+                href="/dashboard/mentor"
+                className="flex items-center justify-between gap-4 rounded-md px-2 py-2 text-sm font-medium hover:bg-background-subtle"
+              >
+                Chat with your AI mentor
+                <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" />
+              </Link>
+              <Link
+                href="/dashboard/resources"
+                className="flex items-center justify-between gap-4 rounded-md px-2 py-2 text-sm font-medium hover:bg-background-subtle"
+              >
+                Grab your bonuses
+                <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" />
+              </Link>
             </CardContent>
           </Card>
         </HoverLift>
@@ -345,39 +303,24 @@ export function DashboardHomeClient({
         <HoverLift>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Downloads &amp; resources</CardTitle>
+              <CardTitle className="text-base">Resources</CardTitle>
               <CardDescription>
                 The guide and bonus contact lists that came with your purchase.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-1">
               {resources.map((resource) => (
-                <div
+                <Link
                   key={resource.id}
+                  href="/dashboard/resources"
                   className="flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-background-subtle"
                 >
                   <div>
                     <p className="text-sm font-medium">{resource.title}</p>
                     <p className="text-xs text-muted-foreground">{resource.meta}</p>
                   </div>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    disabled={downloadingId === resource.id}
-                    aria-label={
-                      downloadingId === resource.id
-                        ? `Downloading ${resource.title}...`
-                        : `Download ${resource.title}`
-                    }
-                    onClick={() => download(resource.id, `${resource.title}.pdf`)}
-                  >
-                    {downloadingId === resource.id ? (
-                      <Spinner className="size-4" />
-                    ) : (
-                      <DownloadIcon className="size-4" />
-                    )}
-                  </Button>
-                </div>
+                  <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" />
+                </Link>
               ))}
             </CardContent>
             <CardFooter>

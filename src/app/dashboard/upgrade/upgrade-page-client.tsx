@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
 import { formatNaira } from '@/components/ui/naira-sign';
 import { initiatePlanPurchase } from '@/lib/actions/payments-actions';
+import { formatPlanPrice, planPerMonthLabel, type PlanTier } from '@/lib/utils/plan-utils';
 import type { AccessStatus } from '@/lib/utils/user-utils';
 
 // "Current plan" highlighting is driven by accessStatus.currentPlanId — the
@@ -32,30 +33,12 @@ import type { AccessStatus } from '@/lib/utils/user-utils';
 // tiers over time, but exactly one is ever in effect at once, so there's
 // always a single well-defined "current" tier to highlight (or none, on
 // trial/expired).
-
-const tiers = [
-  {
-    id: '30-day',
-    label: '30 Days',
-    price: '₦9,500',
-    perMonth: null as string | null,
-    bestValue: false,
-  },
-  {
-    id: '3-month',
-    label: '3 Months',
-    price: '₦23,000',
-    perMonth: 'about ₦7,667 a month',
-    bestValue: true,
-  },
-  {
-    id: '6-month',
-    label: '6 Months',
-    price: '₦35,000',
-    perMonth: 'about ₦5,833 a month',
-    bestValue: false,
-  },
-];
+//
+// Tier price/label data comes from the `plans` prop (fetched server-side
+// in page.tsx via plans-actions.ts's getActivePlans) rather than a
+// hardcoded array here -- the actual charge amount was already read from
+// the DB in payments-actions.ts's initiatePlanPurchase; this just stops
+// what's displayed from being able to drift from what's actually charged.
 
 const billingFaq = [
   {
@@ -98,7 +81,13 @@ function headerCopyFor(status: AccessStatus['status']) {
   };
 }
 
-export function UpgradePageClient({ accessStatus }: { accessStatus: AccessStatus }) {
+export function UpgradePageClient({
+  accessStatus,
+  plans,
+}: {
+  accessStatus: AccessStatus;
+  plans: PlanTier[];
+}) {
   const header = headerCopyFor(accessStatus.status);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   // Set only when this page was reached via the mentor page's access-limit
@@ -127,13 +116,14 @@ export function UpgradePageClient({ accessStatus }: { accessStatus: AccessStatus
       </FadeIn>
 
       <div className="grid gap-6 sm:grid-cols-3">
-        {tiers.map((tier, index) => {
+        {plans.map((tier, index) => {
           const isCurrent = tier.id === accessStatus.currentPlanId;
+          const perMonth = planPerMonthLabel(tier.priceKobo, tier.durationDays);
 
           return (
             <FadeIn key={tier.id} delay={0.05 + index * 0.05} className="flex h-full">
               <HoverLift className="relative flex h-full w-full">
-                {tier.bestValue && (
+                {tier.isRecommended && (
                   <Badge className="absolute -top-3 left-1/2 z-10 -translate-x-1/2 bg-none bg-accent-gold text-white">
                     Recommended
                   </Badge>
@@ -142,7 +132,7 @@ export function UpgradePageClient({ accessStatus }: { accessStatus: AccessStatus
                   className={cn(
                     'h-full w-full',
                     isCurrent && 'ring-2 ring-primary',
-                    tier.bestValue
+                    tier.isRecommended
                       ? 'border-primary/20 bg-gradient-to-br from-primary/15 via-accent-gold/8 to-primary/5 shadow-lg'
                       : 'shadow-soft'
                   )}
@@ -156,12 +146,10 @@ export function UpgradePageClient({ accessStatus }: { accessStatus: AccessStatus
                     </div>
                     <div className="pt-2">
                       <span className="font-alt text-xl font-semibold">
-                        {formatNaira(tier.price)}
+                        {formatNaira(formatPlanPrice(tier.priceKobo))}
                       </span>
                     </div>
-                    {tier.perMonth && (
-                      <CardDescription>{formatNaira(tier.perMonth)}</CardDescription>
-                    )}
+                    {perMonth && <CardDescription>{formatNaira(perMonth)}</CardDescription>}
                   </CardHeader>
                   <CardContent className="mb-auto">
                     <div className="flex items-start gap-2 text-sm">
@@ -172,7 +160,7 @@ export function UpgradePageClient({ accessStatus }: { accessStatus: AccessStatus
                   <CardFooter>
                     <Button
                       className="w-full rounded-full active:scale-95 transition-transform"
-                      variant={tier.bestValue ? 'default' : 'outline'}
+                      variant={tier.isRecommended ? 'default' : 'outline'}
                       disabled={isCurrent || pendingPlanId !== null}
                       onClick={() => handleUpgradeClick(tier.id)}
                     >

@@ -17,3 +17,25 @@ export function formatMonthYear(raw: string | null): string | null {
 
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
+
+// "Today, 4:12 PM" / "Yesterday, 4:12 PM" / "Oct 28" (same year) /
+// "Oct 28, 2025" (older) -- used by dashboard-home-client.tsx's "Continue
+// where you left off" card to show when the most recent mentor message
+// was sent, without a full timestamp library for just this one spot.
+export function formatRecentTimestamp(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+
+  if (dayDiff === 0) return `Today, ${time}`;
+  if (dayDiff === 1) return `Yesterday, ${time}`;
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+  });
+}

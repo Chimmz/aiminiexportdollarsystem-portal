@@ -1,7 +1,11 @@
 import { embedMany } from 'ai';
 import { createServiceClient } from '@/lib/supabase/service';
 import { embeddingModel } from '@/lib/ai/models';
-import { getMessageText, hasRecallableText, textOnlyParts } from '@/lib/utils/conversation-utils';
+import {
+  getMessageText,
+  hasRecallableText,
+  textOnlyParts,
+} from '@/lib/utils/conversation-utils';
 import type { AppMessage } from '@/app/api/mentor/chat/route';
 
 // Reads/writes the `messages` table (see supabase/migrations/
@@ -10,11 +14,43 @@ import type { AppMessage } from '@/app/api/mentor/chat/route';
 // memory-actions.ts -- these only ever run from /api/mentor/chat (a server
 // route), never a client bundle.
 
+// Powers dashboard-home-client.tsx's "Continue where you left off" card.
+// Walks back from the newest message until it finds one with a real text
+// part (hasRecallableText) -- a pure tool-call/tool-result turn has
+// nothing worth previewing -- then keeps only that message's text
+// (getMessageText strips any tool parts out of the same message), cut
+// down to a preview length so a long reply doesn't make this query's
+// payload any bigger than it needs to be for a one-line card.
+export async function getMostRecentMessagePreview(
+  userId: string
+): Promise<{ text: string; createdAt: string } | null> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from('messages')
+    .select('role, parts, created_at')
+    .eq('user_id', userId)
+    .order('seq', { ascending: false })
+    .limit(10);
+  if (error) throw new Error(`mentor messages preview: ${error.message}`);
+
+  for (const row of data ?? []) {
+    const message = { role: row.role as AppMessage['role'], parts: row.parts as AppMessage['parts'] } as AppMessage;
+    if (hasRecallableText(message)) {
+      const text = getMessageText(message);
+      return {
+        text: text.length > 220 ? `${text.slice(0, 220).trim()}…` : text,
+        createdAt: row.created_at,
+      };
+    }
+  }
+  return null;
+}
+
 export async function getMentorMessages(userId: string): Promise<AppMessage[]> {
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from('messages')
-    .select('id, role, parts')
+    .select('id, role, parts, created_at')
     .eq('user_id', userId)
     .order('seq', { ascending: true });
   if (error) throw new Error(`mentor messages: ${error.message}`);
@@ -23,6 +59,7 @@ export async function getMentorMessages(userId: string): Promise<AppMessage[]> {
     id: row.id,
     role: row.role as AppMessage['role'],
     parts: row.parts as AppMessage['parts'],
+    metadata: { createdAt: row.created_at },
   }));
 }
 
@@ -47,7 +84,7 @@ export async function saveMentorMessages(
   // Eva's final reply -- at most 2), not one call per message. A failure
   // here is never allowed to lose the turn itself -- it just means those
   // messages stay unsearchable later (embedding left null), same
-  // graceful-degradation posture as recordTokenUsage/manageMemory
+  // graceful-degradation posture as recordTokenUsage/extractAndUpdateMemory
   // failures elsewhere in this route.
   const embeddableIndexes = messages.reduce<number[]>((acc, message, index) => {
     if (hasRecallableText(message)) acc.push(index);
@@ -98,9 +135,7 @@ export interface RankedMentorMessage {
   createdAt: string;
 }
 
-function toRankedMentorMessages(
-  data: unknown
-): RankedMentorMessage[] {
+function toRankedMentorMessages(data: unknown): RankedMentorMessage[] {
   const rows = (data ?? []) as {
     id: string;
     role: string;
@@ -187,10 +222,14 @@ export async function searchOlderMentorMessages({
     }),
   ]);
   if (keywordResult.error) {
-    throw new Error(`search older mentor messages (keyword): ${keywordResult.error.message}`);
+    throw new Error(
+      `search older mentor messages (keyword): ${keywordResult.error.message}`
+    );
   }
   if (semanticResult.error) {
-    throw new Error(`search older mentor messages (semantic): ${semanticResult.error.message}`);
+    throw new Error(
+      `search older mentor messages (semantic): ${semanticResult.error.message}`
+    );
   }
 
   return {

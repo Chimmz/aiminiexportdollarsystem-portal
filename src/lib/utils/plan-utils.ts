@@ -1,3 +1,5 @@
+import type { AccessStatus } from './user-utils';
+
 // Plan id -> human label and the post-payment celebration copy built from
 // it. Shared between the Upgrade callback page and the mentor page's
 // post-payment toast (mentor-chat-client.tsx) so the two surfaces that can
@@ -15,6 +17,55 @@ const PLAN_LABELS: Record<string, string> = {
 
 export function getPlanLabel(planId: string): string {
   return PLAN_LABELS[planId] ?? 'your plan';
+}
+
+// Names the plan plainly ("3-month plan") instead of a generic "Active
+// plan" badge -- currentPlanId is already the exact plans.id text (see
+// requireCurrentUser), never 'pdf-guide' since that product never grants
+// an access_period, so no special-casing is needed on that branch. On the
+// trial branch, recentPaymentPlanId tells apart someone who's bought
+// nothing at all from someone who bought the guide but hasn't upgraded to
+// an AI plan yet -- the latter reads as "Free plan" rather than "Free
+// trial". Shared by the dashboard home card and the Account page's Plan
+// & billing badge so the two never describe the same status two
+// different ways.
+export function planBadgeLabel(accessStatus: AccessStatus): string {
+  if (accessStatus.status === 'active' && accessStatus.currentPlanId) {
+    return `${accessStatus.currentPlanId} plan`;
+  }
+  if (accessStatus.status === 'expired') return 'Access expired';
+  if (accessStatus.recentPaymentPlanId === 'pdf-guide') return 'Free plan';
+  return 'Free trial';
+}
+
+// The AI-access tiers shown on the Upgrade page, shaped from plans-actions
+// getActivePlans() -- camelCased here rather than passing the raw DB row
+// shape down into a client component.
+export interface PlanTier {
+  id: string;
+  label: string;
+  priceKobo: number;
+  durationDays: number;
+  isRecommended: boolean;
+}
+
+// "₦9,500" -- upgrade-page-client.tsx was duplicating this as a literal
+// string per tier before; computing it from price_kobo is what makes a
+// DB-side price change (or a new tier) show up without a code change.
+export function formatPlanPrice(priceKobo: number): string {
+  const naira = priceKobo / 100;
+  return `₦${naira.toLocaleString('en-US')}`;
+}
+
+// "about ₦7,667 a month" for anything longer than 30 days, null for the
+// 30-day tier itself (nothing to average over) -- same condition the
+// hardcoded tiers array used to encode per-row (perMonth: null vs set),
+// now derived instead of duplicated.
+export function planPerMonthLabel(priceKobo: number, durationDays: number): string | null {
+  const months = durationDays / 30;
+  if (months <= 1) return null;
+  const perMonthNaira = Math.round(priceKobo / 100 / months);
+  return `about ₦${perMonthNaira.toLocaleString('en-US')} a month`;
 }
 
 function formatAccessUntil(endsAtIso: string): string {

@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { KeyRoundIcon } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,8 +16,8 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
+import { planBadgeLabel } from '@/lib/utils/plan-utils';
 import type { AccessStatus, CurrentUser } from '@/lib/utils/user-utils';
 
 // Profile edits and account actions below are still presentational-only —
@@ -79,7 +78,6 @@ export function AccountPageClient({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(displayNameFor(user));
-  const [email, setEmail] = useState(user.email);
 
   const handleSave = () => {
     setIsEditing(false);
@@ -129,13 +127,7 @@ export function AccountPageClient({
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="account-email">Email</Label>
-                  <Input
-                    id="account-email"
-                    type="email"
-                    value={email}
-                    disabled={!isEditing}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
+                  <Input id="account-email" type="email" value={user.email} disabled />
                 </div>
               </div>
             </CardContent>
@@ -150,7 +142,6 @@ export function AccountPageClient({
                   onClick={() => {
                     setIsEditing(false);
                     setName(displayNameFor(user));
-                    setEmail(user.email);
                   }}
                 >
                   Cancel
@@ -170,77 +161,20 @@ export function AccountPageClient({
                 <Badge
                   variant={accessStatus.status === 'active' ? 'default' : 'secondary'}
                 >
-                  {accessStatus.status === 'active'
-                    ? 'Active plan'
-                    : accessStatus.status === 'expired'
-                      ? 'Access expired'
-                      : 'Free trial'}
+                  {planBadgeLabel(accessStatus)}
                 </Badge>
               </div>
               <CardDescription>{planDescriptionFor(accessStatus)}</CardDescription>
             </CardHeader>
             <CardFooter className="gap-3">
-              {accessStatus.status === 'active' ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleComingSoon('Managing billing')}
-                >
-                  Manage billing
-                </Button>
-              ) : (
-                <Button asChild size="sm" className="rounded-full px-5">
-                  <Link href="/dashboard/upgrade">Upgrade</Link>
-                </Button>
-              )}
+              <Button asChild size="sm" className="rounded-full px-5">
+                <Link href="/dashboard/upgrade">Upgrade</Link>
+              </Button>
             </CardFooter>
           </Card>
         </HoverLift>
       </FadeIn>
 
-      <FadeIn delay={0.15}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Security</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between gap-4 rounded-md px-2 py-1">
-              <div className="flex items-center gap-2 text-sm">
-                <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span>Password</span>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleComingSoon('Changing your password')}
-              >
-                Change password
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </FadeIn>
-
-      <FadeIn delay={0.2}>
-        <Card className="border-destructive/20">
-          <CardHeader>
-            <CardTitle className="text-base text-destructive">Danger zone</CardTitle>
-            <CardDescription>
-              Permanently delete your account and all of its data. This cannot be undone.
-            </CardDescription>
-          </CardHeader>
-          <Separator />
-          <CardFooter className="pt-(--card-spacing)">
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => handleComingSoon('Deleting your account')}
-            >
-              Delete account
-            </Button>
-          </CardFooter>
-        </Card>
-      </FadeIn>
     </div>
   );
 }
