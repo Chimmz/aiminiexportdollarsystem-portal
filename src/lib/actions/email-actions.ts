@@ -27,13 +27,18 @@ export interface SendUpgradeReceiptParams {
   paymentReference: string;
   paidAtFormatted: string;
   accessUntilFormatted: string | null;
-  mentorUrl: string;
+  ctaUrl: string;
+  ctaLabel: string;
+  requiresSignIn: boolean;
 }
 
-// Called from payments-actions.ts's creditPayment, right after a payment
-// is actually marked successful -- best-effort by design. The caller
-// wraps this in its own try/catch; a send failure here must never undo
-// or block the access that was already credited for real.
+// Called from payments-actions.ts's creditPayment (an in-portal purchase,
+// requiresSignIn always false there) and from the sales-site webhook
+// route (an AI-plan bought directly on the sales site, requiresSignIn
+// always true there, since there's no `users` row yet) -- best-effort by
+// design in both. The caller wraps this in its own try/catch; a send
+// failure here must never undo or block the access that was already
+// credited for real.
 export async function sendUpgradeReceiptEmail(params: SendUpgradeReceiptParams): Promise<void> {
   const html = await render(
     UpgradeReceiptEmail({
@@ -43,7 +48,9 @@ export async function sendUpgradeReceiptEmail(params: SendUpgradeReceiptParams):
       paymentReference: params.paymentReference,
       paidAtFormatted: params.paidAtFormatted,
       accessUntilFormatted: params.accessUntilFormatted,
-      mentorUrl: params.mentorUrl,
+      ctaUrl: params.ctaUrl,
+      ctaLabel: params.ctaLabel,
+      requiresSignIn: params.requiresSignIn,
     })
   );
 
@@ -51,7 +58,9 @@ export async function sendUpgradeReceiptEmail(params: SendUpgradeReceiptParams):
   const { error } = await resend.emails.send({
     from: getFromAddress(),
     to: params.to,
-    subject: `Receipt: your ${params.planLabel} plan is active`,
+    subject: params.requiresSignIn
+      ? `Your ${params.planLabel} plan is paid for, sign in to start`
+      : `Receipt: your ${params.planLabel} plan is active`,
     html,
   });
 

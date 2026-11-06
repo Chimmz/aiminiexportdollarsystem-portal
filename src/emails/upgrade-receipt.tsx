@@ -27,7 +27,13 @@ export interface UpgradeReceiptEmailProps {
   paymentReference: string;
   paidAtFormatted: string; // e.g. "November 4, 2026"
   accessUntilFormatted: string | null; // null when the period is still unactivated
-  mentorUrl: string;
+  ctaUrl: string;
+  ctaLabel: string;
+  // True for an AI-plan purchase made on the sales site, where there's no
+  // `users` row yet (same situation as pdf-guide-receipt.tsx) -- the plan
+  // isn't actually active yet, just paid for, so both the subtext and the
+  // CTA need to say "sign in first," not "you're all set."
+  requiresSignIn: boolean;
 }
 
 const main = { backgroundColor: '#f6f6f4', fontFamily: 'Helvetica, Arial, sans-serif' };
@@ -73,7 +79,9 @@ export function UpgradeReceiptEmail({
   paymentReference,
   paidAtFormatted,
   accessUntilFormatted,
-  mentorUrl,
+  ctaUrl,
+  ctaLabel,
+  requiresSignIn,
 }: UpgradeReceiptEmailProps) {
   return (
     <Html>
@@ -83,8 +91,9 @@ export function UpgradeReceiptEmail({
         <Container style={container}>
           <Heading style={heading}>You&apos;re upgraded, {firstName}</Heading>
           <Text style={subtext}>
-            Your payment went through and your {planLabel} plan is active. Here&apos;s your
-            receipt for your records.
+            {requiresSignIn
+              ? `Your payment went through. Sign in to activate your ${planLabel} plan and start chatting with Eva.`
+              : `Your payment went through and your ${planLabel} plan is active. Here is your receipt for your records.`}
           </Text>
 
           <Section>
@@ -127,8 +136,8 @@ export function UpgradeReceiptEmail({
           <Hr style={{ borderColor: '#e2e8f0', margin: '24px 0' }} />
 
           <Section style={{ textAlign: 'center' as const }}>
-            <Button href={mentorUrl} style={button}>
-              Continue with Eva
+            <Button href={ctaUrl} style={button}>
+              {ctaLabel}
             </Button>
           </Section>
 

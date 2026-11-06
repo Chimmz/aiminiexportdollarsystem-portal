@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { recordSalesSitePayment } from '@/lib/actions/leads-actions';
 import { verifySalesSiteSecret } from '@/lib/utils/sales-site-auth';
-import { sendPdfGuideReceiptEmail } from '@/lib/actions/email-actions';
+import { sendPdfGuideReceiptEmail, sendUpgradeReceiptEmail } from '@/lib/actions/email-actions';
+import { getPlanById } from '@/lib/actions/plans-actions';
 import { formatPlanPrice } from '@/lib/utils/plan-utils';
 
 // Called server-to-server by mini-export-web, right after IT has verified
@@ -75,24 +76,52 @@ export async function POST(req: Request) {
   // again here would double the receipt in the buyer's inbox. A send
   // failure must never turn into a 500 back to mini-export-web; the
   // payment itself is already recorded either way.
-  if (result.status === 'recorded' && planId === 'pdf-guide') {
+  //
+  // Which template fires is driven by the plan's own grants_ai_access
+  // flag, not a hardcoded planId === 'pdf-guide' check -- a buyer who
+  // upgrades to an AI plan right on the sales site (a lead, not a user
+  // yet -- see convert-lead.ts) gets the same upgrade-receipt copy an
+  // in-portal purchase does, just pointed at /sign-in first instead of
+  // straight at the mentor, and with accessUntilFormatted always null
+  // here since no access_period exists yet -- that only gets created
+  // once this lead actually signs in.
+  if (result.status === 'recorded') {
     try {
       const siteOrigin =
         process.env.NEXT_PUBLIC_SITE_URL ?? 'https://account.aipoweredminiexportdollarsystem.online';
-      await sendPdfGuideReceiptEmail({
-        to: email,
-        firstName: body.name?.trim().split(' ')[0] || 'there',
-        amountPaid: formatPlanPrice(amountKobo),
-        paymentReference,
-        paidAtFormatted: new Date().toLocaleDateString('en-US', {
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric',
-        }),
-        signInUrl: `${siteOrigin}/sign-in`,
+      const plan = await getPlanById(planId);
+      const firstName = body.name?.trim().split(' ')[0] || 'there';
+      const paidAtFormatted = new Date().toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
       });
+
+      if (plan?.grantsAiAccess) {
+        await sendUpgradeReceiptEmail({
+          to: email,
+          firstName,
+          planLabel: plan.label,
+          amountPaid: formatPlanPrice(amountKobo),
+          paymentReference,
+          paidAtFormatted,
+          accessUntilFormatted: null,
+          ctaUrl: `${siteOrigin}/sign-in?next=${encodeURIComponent('/dashboard/mentor')}`,
+          ctaLabel: 'Sign in to access your mentor',
+          requiresSignIn: true,
+        });
+      } else {
+        await sendPdfGuideReceiptEmail({
+          to: email,
+          firstName,
+          amountPaid: formatPlanPrice(amountKobo),
+          paymentReference,
+          paidAtFormatted,
+          signInUrl: `${siteOrigin}/sign-in`,
+        });
+      }
     } catch (err) {
-      console.error('[sales-site webhook] pdf guide receipt email failed:', err);
+      console.error('[sales-site webhook] receipt email failed:', err);
     }
   }
 

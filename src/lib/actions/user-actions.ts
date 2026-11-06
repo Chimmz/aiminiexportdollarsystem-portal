@@ -24,16 +24,54 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     .select("id, email, full_name, company_name, created_at, activated_at, role")
     .eq("id", claims.claims.sub)
     .single();
-  if (!userRow) return null;
+
+  if (userRow) {
+    return {
+      id: userRow.id,
+      email: userRow.email,
+      fullName: userRow.full_name,
+      companyName: userRow.company_name,
+      createdAt: userRow.created_at,
+      activatedAt: userRow.activated_at,
+      role: userRow.role as CurrentUser["role"],
+    };
+  }
+
+  // Self-heal: a valid session with no matching `users` row means the
+  // on_auth_user_created trigger (schema_app.sql) either hasn't landed
+  // yet or didn't fire for this signup (see migrations/0028's own
+  // comment for how that was already caught once). Returning null here
+  // would read as "signed out" to every caller -- including proxy.ts,
+  // whose own "bounce signed-in visitors off /sign-in" check would then
+  // fight requireCurrentUser's "no users row, back to /sign-in" redirect
+  // forever. Inserting the row ourselves with exactly what the trigger
+  // would have, then proceeding, turns that failure mode into a one-time
+  // self-correction instead of a stuck account. Service role, since
+  // there's deliberately no INSERT policy on `users` for the regular
+  // client (self-registration only ever happens via the trigger).
+  const email = claims.claims.email as string | undefined;
+  if (!email) return null;
+
+  const service = createServiceClient();
+  const { data: healedRow, error: healError } = await service
+    .from("users")
+    .upsert({ id: claims.claims.sub, email }, { onConflict: "id" })
+    .select("id, email, full_name, company_name, created_at, activated_at, role")
+    .single();
+
+  if (healError || !healedRow) {
+    console.error("[auth] self-heal insert for missing users row failed:", healError?.message);
+    return null;
+  }
 
   return {
-    id: userRow.id,
-    email: userRow.email,
-    fullName: userRow.full_name,
-    companyName: userRow.company_name,
-    createdAt: userRow.created_at,
-    activatedAt: userRow.activated_at,
-    role: userRow.role as CurrentUser["role"],
+    id: healedRow.id,
+    email: healedRow.email,
+    fullName: healedRow.full_name,
+    companyName: healedRow.company_name,
+    createdAt: healedRow.created_at,
+    activatedAt: healedRow.activated_at,
+    role: healedRow.role as CurrentUser["role"],
   };
 });
 

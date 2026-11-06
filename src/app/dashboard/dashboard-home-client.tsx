@@ -169,7 +169,7 @@ export function DashboardHomeClient({
               <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
             <div className="text-sm">
-              <p className="font-medium">{displayName}</p>
+              <p className="font-medium text-center">{displayName}</p>
               <p className="text-xs text-muted-foreground">
                 Member since {memberSinceFor(user)}
               </p>

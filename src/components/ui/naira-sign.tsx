@@ -13,14 +13,14 @@ import { cn } from '@/lib/utils';
 // the custom font's, so default baseline alignment leaves the glyph
 // looking slightly off relative to digits next to it -- align-middle
 // centers it against the surrounding text instead.
-const SYSTEM_FONT_STACK =
-  "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+// const SYSTEM_FONT_STACK =
+//   "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
 
 export function NairaSign({ className }: { className?: string }) {
   return (
     <span
       className={cn('align-middle leading-none', className)}
-      style={{ fontFamily: SYSTEM_FONT_STACK }}
+      // style={{ fontFamily: SYSTEM_FONT_STACK }}
     >
       ₦
     </span>

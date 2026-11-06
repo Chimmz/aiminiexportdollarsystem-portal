@@ -65,7 +65,7 @@ export async function POST(req: Request) {
   const { data: payment } = await supabase
     .from('payments')
     .select('id, user_id, plan_id, amount_kobo, status')
-    .eq('paystack_reference', reference)
+    .eq('payment_reference', reference)
     .maybeSingle();
 
   if (!payment || !payment.user_id) {
