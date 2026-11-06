@@ -43,17 +43,20 @@ export type SetupStepKey = SmallSetupStepKey | LargeSetupStepKey;
 const SMALL_SETUP_STEPS: StepDef<SmallSetupStepKey>[] = [
   {
     key: 'small_decide_product',
-    label: 'Decide what product to export and confirm real demand and a wholesale sourcing price',
+    label:
+      'Decide what product to export and confirm real demand and a wholesale sourcing price',
   },
   { key: 'small_decide_country', label: 'Decide which country or market to target' },
   {
     key: 'small_register_business',
-    label: 'Register a business (CAC) -- enterprise or business name is enough at this scale',
+    label:
+      'Register a business (CAC) -- enterprise or business name is enough at this scale',
   },
   { key: 'small_open_account', label: 'Open a domiciliary or foreign-currency account' },
   {
     key: 'small_build_presence_and_advertise',
-    label: 'Build a public presence (catalogue, social page or flyer) and start advertising to buyers',
+    label:
+      'Build a public presence (catalogue, social page or flyer) and start advertising to buyers',
   },
   {
     key: 'small_get_fda',
@@ -68,15 +71,23 @@ const SMALL_SETUP_STEPS: StepDef<SmallSetupStepKey>[] = [
 // it expires in two years and is quick (24-48hrs) to obtain once needed --
 // see large_source in LARGE_DEAL_STEPS below instead.
 const LARGE_SETUP_STEPS: StepDef<LargeSetupStepKey>[] = [
-  { key: 'large_decide_product', label: 'Decide what product to export and confirm supply capacity' },
-  { key: 'large_decide_country', label: 'Decide which country or buyer category to target' },
+  {
+    key: 'large_decide_product',
+    label: 'Decide what product to export and confirm supply capacity',
+  },
+  {
+    key: 'large_decide_country',
+    label: 'Decide which country or buyer category to target',
+  },
   {
     key: 'large_register_llc',
-    label: 'Register a Limited Liability Company (CAC) -- enterprise/business name does not qualify at this scale',
+    label:
+      'Register a Limited Liability Company (CAC) -- enterprise/business name does not qualify at this scale',
   },
   {
     key: 'large_open_corporate_account_nxp',
-    label: 'Open a corporate domiciliary account and an NXP (Nigeria Export Proceed) account',
+    label:
+      'Open a corporate domiciliary account and an NXP (Nigeria Export Proceed) account',
   },
   {
     key: 'large_get_fda',
@@ -88,13 +99,6 @@ export const SETUP_STEPS_BY_SCALE: Record<ExportScale, StepDef<SetupStepKey>[]> 
   small: SMALL_SETUP_STEPS,
   large: LARGE_SETUP_STEPS,
 };
-
-// Flat union of both tracks' steps -- used only where every valid key
-// needs to be expressible at once, such as manage-memory-tool.ts's zod
-// enum. Reading/display always goes through SETUP_STEPS_BY_SCALE[scale]
-// instead, which is the one track that's actually relevant to a given
-// user.
-export const ALL_SETUP_STEPS: StepDef<SetupStepKey>[] = [...SMALL_SETUP_STEPS, ...LARGE_SETUP_STEPS];
 
 export type SmallDealStepKey =
   | 'small_attract_buyer_and_quote'
@@ -114,7 +118,10 @@ export type LargeDealStepKey =
 export type DealStepKey = SmallDealStepKey | LargeDealStepKey;
 
 const SMALL_DEAL_STEPS: StepDef<SmallDealStepKey>[] = [
-  { key: 'small_attract_buyer_and_quote', label: 'Attract a buyer and send a price quote' },
+  {
+    key: 'small_attract_buyer_and_quote',
+    label: 'Attract a buyer and send a price quote',
+  },
   {
     key: 'small_get_paid',
     label: 'Get paid (usually near-full payment upfront at this scale) before shipping',
@@ -123,7 +130,8 @@ const SMALL_DEAL_STEPS: StepDef<SmallDealStepKey>[] = [
   { key: 'small_pack', label: 'Pack the goods for export' },
   {
     key: 'small_ship',
-    label: 'Hand the goods to a logistics company to ship -- their documents cover the shipment',
+    label:
+      'Hand the goods to a logistics company to ship -- their documents cover the shipment',
   },
 ];
 
@@ -140,7 +148,8 @@ const SMALL_DEAL_STEPS: StepDef<SmallDealStepKey>[] = [
 const LARGE_DEAL_STEPS: StepDef<LargeDealStepKey>[] = [
   {
     key: 'large_attract_buyer_and_quote',
-    label: 'Send a proposal or quotation (or respond to one, if the buyer found you first)',
+    label:
+      'Send a proposal or quotation (or respond to one, if the buyer found you first)',
   },
   {
     key: 'large_negotiate_and_sign_contract',
@@ -148,11 +157,13 @@ const LARGE_DEAL_STEPS: StepDef<LargeDealStepKey>[] = [
   },
   {
     key: 'large_get_paid',
-    label: "Get paid or have escrow/LC funded, per the signed contract's terms, before shipping",
+    label:
+      "Get paid or have escrow/LC funded, per the signed contract's terms, before shipping",
   },
   {
     key: 'large_source',
-    label: 'Source the goods -- also when to apply for the NEPC export licence, now that a contract is in hand',
+    label:
+      'Source the goods -- also when to apply for the NEPC export licence, now that a contract is in hand',
   },
   { key: 'large_pack', label: 'Pack the goods for export' },
   { key: 'large_ship', label: 'Ship the goods' },
@@ -163,8 +174,6 @@ export const DEAL_STEPS_BY_SCALE: Record<ExportScale, StepDef<DealStepKey>[]> = 
   large: LARGE_DEAL_STEPS,
 };
 
-export const ALL_DEAL_STEPS: StepDef<DealStepKey>[] = [...SMALL_DEAL_STEPS, ...LARGE_DEAL_STEPS];
-
 export type StepStatus = 'not_started' | 'in_progress' | 'done';
 
 export interface StepProgress {
@@ -172,19 +181,88 @@ export interface StepProgress {
   detail: string | null;
 }
 
-export interface JourneyProgress {
+// A deal is tracked per product, not per user -- see supabase/migrations/
+// 0022_deals_multi_tracking.sql and journey-actions.ts's resolveDeal. A
+// user can have several active at once (yam flour mid-shipment, kilishi
+// just quoted); each keeps its own independent set of deal steps.
+export type DealStatus = 'active' | 'done' | 'abandoned';
+
+export interface Deal {
+  id: string;
+  product: string;
+  status: DealStatus;
+  steps: Record<string, StepProgress>;
+  // ISO timestamp, used only to order deals in the prompt (most recently
+  // active first) and pick which one gets labeled "Current deal" -- never
+  // displayed itself. See formatFullExportJourneyProgressForPrompt below.
+  lastActiveAt: string;
+}
+
+// A finished or abandoned deal, kept around only as a short mention in the
+// prompt (product + outcome), not its full step breakdown -- see
+// formatFullExportJourneyProgressForPrompt below.
+export interface PastDeal {
+  product: string;
+  status: DealStatus;
+}
+
+// The full picture fed into the prompt -- "full" is doing real work in the
+// name, not decoration: not just the one-time journey_setup_progress table
+// despite the name's root, but setup steps AND every active deal already
+// joined to its own deal_step_progress rows (see
+// getFullExportJourneyProgress in journey-actions.ts) AND a short record
+// of past deals. "Export journey" is the user's whole path through the
+// course -- getting set up, then every deal they've run -- not a synonym
+// for either DB table alone.
+export interface FullExportJourneyProgress {
   scale: ExportScale;
   setup: Record<string, StepProgress>;
-  deal: Record<string, StepProgress>;
+  activeDeals: Deal[];
+  pastDeals: PastDeal[];
 }
 
-// Shared with journey-actions.ts's getJourneyProgress -- the shape every
-// step defaults to before any DB row overrides it.
+// Powers the chat-controls rail's Memory section -- "what product" and
+// "what country" are the two pieces of journey_setup_progress that feel
+// like personal context a user would want to see alongside profile_facts
+// (see the design discussion that led here: these two are deliberately
+// NOT profile facts themselves, to avoid the same info drifting out of
+// sync in two places). Read-only there, unlike facts -- "deleting" one of
+// these would really mean resetting real journey progress, a more
+// consequential action than forgetting a loose fact, so the rail doesn't
+// expose that here. Scale-aware: resolves to small_/large_ prefixed keys
+// depending on which track this progress object is already for.
+export interface JourneyHighlightField {
+  key: 'product' | 'country';
+  label: string;
+  status: StepStatus;
+  detail: string | null;
+}
+
+export function getProductAndCountryProgress(
+  progress: FullExportJourneyProgress
+): JourneyHighlightField[] {
+  const steps = SETUP_STEPS_BY_SCALE[progress.scale];
+  const labelFor = (key: string) => steps.find((s) => s.key === key)?.label ?? key;
+  const emptyProgress: StepProgress = { status: 'not_started', detail: null };
+
+  const productKey = progress.scale === 'large' ? 'large_decide_product' : 'small_decide_product';
+  const countryKey = progress.scale === 'large' ? 'large_decide_country' : 'small_decide_country';
+
+  return [
+    { key: 'product', label: labelFor(productKey), ...(progress.setup[productKey] ?? emptyProgress) },
+    { key: 'country', label: labelFor(countryKey), ...(progress.setup[countryKey] ?? emptyProgress) },
+  ];
+}
+
+// Shared with journey-actions.ts's getFullExportJourneyProgress -- the
+// shape every step defaults to before any DB row overrides it.
 export function defaultProgress(keys: string[]): Record<string, StepProgress> {
-  return Object.fromEntries(keys.map((k) => [k, { status: 'not_started' as StepStatus, detail: null }]));
+  return Object.fromEntries(
+    keys.map((k) => [k, { status: 'not_started' as StepStatus, detail: null }])
+  );
 }
 
-function statusLabel(status: StepStatus): string {
+export function statusLabel(status: StepStatus): string {
   return { not_started: 'not started', in_progress: 'in progress', done: 'done' }[status];
 }
 
@@ -192,9 +270,11 @@ function statusLabel(status: StepStatus): string {
 // (see config.ts) for the same caching reason userFirstName sits there:
 // anything that varies per request breaks prompt caching for everything
 // after it, so it goes last.
-export function formatJourneyProgressForPrompt(progress: JourneyProgress): string {
+export function formatFullExportJourneyProgressForPrompt(
+  progress: FullExportJourneyProgress
+): string {
   const setupSteps = SETUP_STEPS_BY_SCALE[progress.scale];
-  const dealSteps = DEAL_STEPS_BY_SCALE[progress.scale];
+  const dealStepDefs = DEAL_STEPS_BY_SCALE[progress.scale];
 
   const setupLines = setupSteps
     .map((step, i) => {
@@ -204,16 +284,45 @@ export function formatJourneyProgressForPrompt(progress: JourneyProgress): strin
     })
     .join('\n');
 
-  const dealLines = dealSteps
-    .map((step, i) => {
-      const p = progress.deal[step.key];
-      const detail = p.detail ? ` (${p.detail})` : '';
-      return `${i + 1}. ${step.label} [${statusLabel(p.status)}]${detail}`;
-    })
-    .join('\n');
+  // Most-recently-active first, independent of whatever order the caller's
+  // query happened to fetch rows in -- the formatter shouldn't silently
+  // depend on that. The top one is also the most likely to be what the
+  // user means by "continue my deal" with no product named, so it's called
+  // out as the current deal rather than left for the model to guess from
+  // position alone.
+  const sortedActiveDeals = [...progress.activeDeals].sort(
+    (a, b) => Date.parse(b.lastActiveAt) - Date.parse(a.lastActiveAt)
+  );
+
+  const dealsBlock =
+    sortedActiveDeals.length > 0
+      ? sortedActiveDeals
+          .map((deal, dealIndex) => {
+            const lines = dealStepDefs
+              .map((step, i) => {
+                const p = deal.steps[step.key];
+                const detail = p.detail ? ` (${p.detail})` : '';
+                return `  ${i + 1}. ${step.label} [${statusLabel(p.status)}]${detail}`;
+              })
+              .join('\n');
+            const currentTag = dealIndex === 0 ? ' [Current deal]' : '';
+            return `- ${deal.product}${currentTag}:\n${lines}`;
+          })
+          .join('\n')
+      : '(none in progress)';
+
+  const pastLine =
+    progress.pastDeals.length > 0
+      ? progress.pastDeals.map((d) => `${d.product} (${d.status})`).join(', ')
+      : null;
 
   const scaleLabel = progress.scale === 'small' ? 'small-scale' : 'large-scale';
-  return `Export scale: ${scaleLabel}\n\nGetting started (one-time, done once ever, before their first deal):\n${setupLines}\n\nCurrent deal (repeats every deal):\n${dealLines}`;
+  return (
+    `Export scale: ${scaleLabel}\n\n` +
+    `Getting started (one-time, done once ever, before their first deal):\n${setupLines}\n\n` +
+    `Deals in progress (each tracked separately by its own product -- there can be more than one at once, and a status update about one never affects another), most recently active first; the first one is tagged [Current deal] since it's the likeliest match if the user says "my deal" without naming a product. Name the product when leading them to a next step, since they may have more than one going:\n${dealsBlock}` +
+    (pastLine ? `\n\nPast deals: ${pastLine}` : '')
+  );
 }
 
 // Which progress table a step belongs to -- see journey-actions.ts's

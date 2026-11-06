@@ -50,7 +50,7 @@ export async function getMentorMessages(userId: string): Promise<AppMessage[]> {
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from('messages')
-    .select('id, role, parts, created_at')
+    .select('id, role, parts, created_at, reaction, reaction_note')
     .eq('user_id', userId)
     .order('seq', { ascending: true });
   if (error) throw new Error(`mentor messages: ${error.message}`);
@@ -59,7 +59,11 @@ export async function getMentorMessages(userId: string): Promise<AppMessage[]> {
     id: row.id,
     role: row.role as AppMessage['role'],
     parts: row.parts as AppMessage['parts'],
-    metadata: { createdAt: row.created_at },
+    metadata: {
+      createdAt: row.created_at,
+      reaction: row.reaction as 'like' | 'dislike' | null,
+      reactionNote: row.reaction_note as string | null,
+    },
   }));
 }
 

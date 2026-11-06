@@ -2,17 +2,22 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser } from '@/lib/actions/user-actions';
 import {
-  getProfileFacts,
+  getUserMemory,
   upsertProfileFact,
   deleteProfileFact,
   clearProfileFacts,
 } from '@/lib/actions/memory-actions';
+import { getProductAndCountryProgress } from '@/lib/utils/journey-utils';
 
 // Backs the chat-controls rail's Memory section (view/add/delete/clear) --
 // a plain CRUD surface over profile_facts, called directly from the rail,
 // not through the model. Same getCurrentUser() + real-401 pattern as
 // price-quotes/route.ts: there's no sensible signed-out behavior for any
-// of these.
+// of these. GET also returns journeyFields (product/country progress,
+// read-only in the rail -- see getProductAndCountryProgress's own
+// comment) -- the write endpoints below (POST/DELETE) stay scoped to
+// profile_facts only, since the rail never lets those two be edited or
+// cleared from here.
 
 const AddFactSchema = z.object({
   factType: z.string().trim().min(1).max(60),
@@ -27,8 +32,9 @@ export async function GET() {
   }
 
   try {
-    const facts = await getProfileFacts(user.id);
-    return NextResponse.json({ facts });
+    const memory = await getUserMemory(user.id);
+    const journeyFields = getProductAndCountryProgress(memory.exportJourneyProgress);
+    return NextResponse.json({ facts: memory.facts, journeyFields });
   } catch (err) {
     console.error('[mentor] list profile facts failed:', err);
     return NextResponse.json({ error: 'Failed to load memory' }, { status: 500 });
