@@ -20,7 +20,11 @@ import { ConversationMessages } from './conversation-messages';
 import { MentorEmptyChat } from './empty-chat';
 import { MentorControlsRail } from '@/components/dashboard/mentor-controls-rail';
 import { useMentorChatState } from '@/contexts/mentor-context';
-import { verifyAndActivatePayment } from '@/lib/actions/payments-actions';
+import {
+  verifyAndActivatePayment,
+  verifyAndActivateFlutterwavePayment,
+  type VerifyPaymentResult,
+} from '@/lib/actions/payments-actions';
 import { ACCESS_EXPIRED_MESSAGE } from '@/lib/utils/access-messages';
 import { paymentSuccessCopy } from '@/lib/utils/plan-utils';
 import type { AccessStatus } from '@/lib/utils/user-utils';
@@ -112,21 +116,34 @@ export function MentorChatClient({
 
   // The chat column (<Conversation>, flex-1) sits beside
   // MentorControlsRail (a sibling, not a descendant) -- a wheel scroll
-  // over the rail has nothing of its own to scroll in the common case, so
-  // it silently did nothing instead of scrolling the conversation, same
-  // class of "dead zone" as the dashboard page's own content being
-  // narrower than its scrollable container. Forwarded here rather than
-  // fixed at the layout level, since (unlike the dashboard) the rail and
-  // the conversation are genuinely two different scrollable things, not
-  // one container that's merely too narrow. Skips the Memory section's
-  // own nested ScrollArea (a real, independently scrollable list) so
-  // hovering that specific list still scrolls it, not the conversation.
+  // over empty space next to a too-narrow conversation column has nothing
+  // of its own to scroll, so it silently did nothing instead of scrolling
+  // the conversation, same class of "dead zone" as the dashboard page's
+  // own content being narrower than its scrollable container. Forwarded
+  // here rather than fixed at the layout level, since the rail and the
+  // conversation are genuinely two different scrollable things, not one
+  // container that's merely too narrow.
+  //
+  // The whole rail is excluded, not just the Memory section's own nested
+  // ScrollArea -- the rail's own outer wrapper
+  // (mentor-controls-rail.tsx's `overflow-y-auto` div) is a real,
+  // independently scrollable container once its content (usage charts,
+  // journey fields, memory list, add-fact form) overflows, not a plain
+  // non-scrolling sibling the way it was when this handler was first
+  // written. `[data-slot="scroll-area-viewport"]` alone only ever caught
+  // nested Radix ScrollArea instances, not that outer plain div, so a
+  // wheel scroll anywhere over the rail outside that one nested list was
+  // being hijacked into scrolling the conversation instead of the rail
+  // itself. `aside` is the rail's own root element
+  // (mentor-controls-rail.tsx) -- excluding by that tag, not a specific
+  // internal class, so this stays correct regardless of how the rail's
+  // internals change later.
   const handleWheelOutsideConversation = useCallback((e: React.WheelEvent) => {
     const scrollEl = stickToBottomContextRef.current?.scrollRef.current;
     if (!scrollEl) return;
     const target = e.target as HTMLElement;
     if (scrollEl.contains(target)) return;
-    if (target.closest('[data-slot="scroll-area-viewport"]')) return;
+    if (target.closest('aside')) return;
     scrollEl.scrollTop += e.deltaY;
   }, []);
 
@@ -308,15 +325,19 @@ export function MentorChatClient({
 
   // Arrival handling for the post-upgrade return trip:
   //
-  // 1. A `reference` in the URL means checkout was started from this
-  //    page's own access-limit bar (?from=mentor -- see
-  //    access-limit-bar.tsx/payments-actions.ts's returnTo) and Paystack
-  //    just redirected straight back here instead of the generic Upgrade
-  //    callback page. Verify it ourselves (idempotent against the webhook,
-  //    see verifyAndActivatePayment's own comment) so access unblocks the
-  //    moment this page loads, show the same celebratory copy the
-  //    callback page would have, then strip the query params so a refresh
-  //    doesn't re-verify or re-show the toast.
+  // 1. A `reference` (Paystack) or `transaction_id` (Flutterwave) in the
+  //    URL means checkout was started from this page's own access-limit
+  //    bar (?from=mentor -- see access-limit-bar.tsx/payments-actions.ts's
+  //    returnTo) and the gateway just redirected straight back here
+  //    instead of the generic Upgrade callback page. Verify it ourselves
+  //    (idempotent against the webhook for Paystack; the only credit path
+  //    at all for Flutterwave, see verifyAndActivateFlutterwavePayment's
+  //    own comment) so access unblocks the moment this page loads, show
+  //    the same celebratory copy the callback page would have, then strip
+  //    the query params so a refresh doesn't re-verify or re-show the
+  //    toast. Flutterwave is the active gateway (initiateFlutterwavePlan
+  //    Purchase), but Paystack's own reference/trxref shape is still
+  //    handled -- never deleted, see that function's own comment.
   // 2. Either way -- that path, or arriving here after clicking "Continue
   //    with Eva" on the generic callback page -- if a message got stashed
   //    by onError's 402 branch above and access is no longer blocked,
@@ -335,20 +356,7 @@ export function MentorChatClient({
       sendUserMessage(pending);
     }
 
-    const reference = searchParams.get('reference') ?? searchParams.get('trxref');
-    if (!reference) {
-      // Mirrors checkMentorChatLimits' own blocked condition (see
-      // _utils.ts) using the data already in accessStatus, so this only
-      // fires when a message would actually be allowed through now.
-      const isBlocked =
-        accessStatus.status === 'expired' ||
-        (accessStatus.status === 'trial' &&
-          accessStatus.trialTokensUsed >= accessStatus.trialTokenBudget);
-      if (!isBlocked) resendIfPending();
-      return;
-    }
-
-    verifyAndActivatePayment(reference).then((result) => {
+    function handleVerifyResult(result: VerifyPaymentResult) {
       router.replace('/dashboard/mentor');
       if (result.status === 'success') {
         const copy = paymentSuccessCopy(result.planId, result.endsAt);
@@ -362,7 +370,34 @@ export function MentorChatClient({
       } else {
         toast("We couldn't confirm that payment. Try again from the Upgrade page.");
       }
-    });
+    }
+
+    const transactionId = searchParams.get('transaction_id');
+    const txRef = searchParams.get('tx_ref');
+    const reference = searchParams.get('reference') ?? searchParams.get('trxref');
+
+    if (transactionId && txRef) {
+      if (searchParams.get('status') === 'cancelled') {
+        router.replace('/dashboard/mentor');
+        return;
+      }
+      verifyAndActivateFlutterwavePayment(txRef, transactionId).then(handleVerifyResult);
+      return;
+    }
+
+    if (!reference) {
+      // Mirrors checkMentorChatLimits' own blocked condition (see
+      // _utils.ts) using the data already in accessStatus, so this only
+      // fires when a message would actually be allowed through now.
+      const isBlocked =
+        accessStatus.status === 'expired' ||
+        (accessStatus.status === 'trial' &&
+          accessStatus.trialTokensUsed >= accessStatus.trialTokenBudget);
+      if (!isBlocked) resendIfPending();
+      return;
+    }
+
+    verifyAndActivatePayment(reference).then(handleVerifyResult);
   }, [searchParams, accessStatus, router, sendUserMessage]);
 
   const isEmpty = messages.length === 0;
@@ -420,7 +455,7 @@ export function MentorChatClient({
       {accessLimitMessage && <AccessLimitBar message={accessLimitMessage} />}
       <MentorPromptInput
         status={status}
-        placeholder="Ask Eva anything about sourcing, pricing, or buyers..."
+        placeholder="Ask Eva anything..."
         onSubmit={handleSubmit}
         className={isEmpty ? 'bg-white! shadow-md' : 'bg-gray-50'}
       />
@@ -497,7 +532,7 @@ export function MentorChatClient({
             suppressAutoScrollRef.current ? scrollElement.scrollTop : targetScrollTop
           }
         >
-          <ConversationContent className="mb-16 flex flex-col px-8">
+          <ConversationContent className="mb-16 flex flex-col pl-4 pr-6 sm:px-8">
             <ConversationMessages
               messages={visibleMessages}
               showLoadingIndicator={showLoadingIndicator}
@@ -509,7 +544,7 @@ export function MentorChatClient({
           <ConversationScrollButton />
         </Conversation>
 
-        <div className="px-8">
+        <div className="pl-4 pr-6 sm:px-8">
           <Container className="shrink-0 space-y-3 pt-4">
             {chatSuggestions}
             {promptInput}

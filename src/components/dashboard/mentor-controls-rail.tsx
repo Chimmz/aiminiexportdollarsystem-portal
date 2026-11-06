@@ -6,6 +6,7 @@ import {
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   Plus,
+  SlidersHorizontal,
   Trash2,
   X,
 } from 'lucide-react';
@@ -20,6 +21,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -27,7 +35,9 @@ import { Spinner } from '@/components/ui/spinner';
 import { UsageDonut } from '@/components/charts/usage-donut';
 import { UsageLineChart } from '@/components/charts/usage-line-chart';
 import { cn } from '@/lib/utils';
+import { useMediaQuery } from '@/hooks/use-media-query';
 import type { ProfileFact } from '@/lib/utils/memory-utils';
+import { statusLabel, type JourneyHighlightField } from '@/lib/utils/journey-utils';
 import type { AccessStatus } from '@/lib/utils/user-utils';
 import { useMentorChatState } from '@/contexts/mentor-context';
 
@@ -46,9 +56,12 @@ interface MentorUsage {
 // toggles its own shadcn-managed state directly). The nav sidebar still
 // auto-collapses on arrival at /dashboard/mentor to make initial room for
 // this rail (see app-sidebar.tsx's route effect) -- that's a one-way,
-// one-time handoff, not an ongoing shared state. Reads and writes
-// profile_facts directly through /api/mentor/memory; chat clearing
-// reaches back into MentorChatClient's useChat state via the
+// one-time handoff, not an ongoing shared state. The displayed fact list
+// starts from initialFacts (server-fetched in page.tsx, refreshed every
+// turn via router.refresh() -- see mentor-chat-client.tsx), but manual
+// add/delete/clear here still go straight through /api/mentor/memory and
+// mutate local state directly/optimistically, same as before; chat
+// clearing reaches back into MentorChatClient's useChat state via the
 // onClearChat callback since this lives as its sibling, not inside it.
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -63,23 +76,60 @@ interface MentorControlsRailProps {
   onClearChat: () => void;
   hasMessages: boolean;
   accessStatus: AccessStatus;
+  initialFacts: ProfileFact[];
 }
 
 export function MentorControlsRail({
   onClearChat,
   hasMessages,
   accessStatus,
+  initialFacts,
 }: MentorControlsRailProps) {
+  // Below lg, the desktop aside (hidden lg:flex, below) never rendered at
+  // all -- Memory, usage, and chat-clearing were simply unreachable on
+  // mobile/tablet. isDesktop picks between that aside and a Sheet-based
+  // drawer with its own floating trigger instead of CSS-hiding both at
+  // once: the inner content below carries three state-controlled Dialogs
+  // (clearChatOpen/clearMemoryOpen/factPendingDelete), and mounting that
+  // same JSX twice would mean both copies' Dialogs open together off one
+  // shared boolean, showing two stacked confirm dialogs. Same hydration
+  // trade-off as useIsMobile's own already-shipped use in ui/sidebar.tsx:
+  // this starts false on first paint (including desktop, briefly, until
+  // the mount effect resolves it), not a new problem this introduces.
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [open, setOpen] = useState(true);
-  const [facts, setFacts] = useState<ProfileFact[] | null>(null);
+  const [facts, setFacts] = useState<ProfileFact[] | null>(initialFacts);
+  // Fetched client-side only (no SSR prop, unlike initialFacts) -- the
+  // brief "Loading memory..." state already covers that gap, and it
+  // keeps this addition out of page.tsx's own data-fetching. Read-only
+  // here regardless (see getProductAndCountryProgress's own comment on
+  // why), so there's no write path to wire up for these two.
+  const [journeyFields, setJourneyFields] = useState<JourneyHighlightField[] | null>(null);
+  // Tracks the last initialFacts reference actually applied below, so a
+  // genuinely new one (page.tsx re-fetched, see router.refresh() in
+  // mentor-chat-client.tsx) can be caught and applied during render --
+  // React's documented pattern for "reset state when a prop changes"
+  // (https://react.dev/learn/you-might-not-need-an-effect), which bails
+  // out of the extra render a useEffect version of this would cost.
+  const [prevInitialFacts, setPrevInitialFacts] = useState(initialFacts);
+  if (initialFacts !== prevInitialFacts) {
+    setPrevInitialFacts(initialFacts);
+    setFacts(initialFacts);
+  }
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState('');
   const [newValue, setNewValue] = useState('');
   const [busyFactType, setBusyFactType] = useState<string | null>(null);
   const [clearChatOpen, setClearChatOpen] = useState(false);
   const [clearMemoryOpen, setClearMemoryOpen] = useState(false);
+  // The single fact a confirm dialog is currently open for, if any --
+  // one shared dialog rather than one per fact (there can be many), the
+  // same reasoning clearChatOpen/clearMemoryOpen above already apply to
+  // their own single actions.
+  const [factPendingDelete, setFactPendingDelete] = useState<ProfileFact | null>(null);
   const [usage, setUsage] = useState<MentorUsage | null>(null);
-  const { memoryVersion, usageVersion } = useMentorChatState();
+  const { usageVersion } = useMentorChatState();
 
   async function loadFacts() {
     try {
@@ -93,14 +143,24 @@ export function MentorControlsRail({
     }
   }
 
+  // journeyFields has no SSR-seeded prop the way facts does (no
+  // initialFacts equivalent), so it needs its own mount fetch rather than
+  // only refreshing after a write the way loadFacts above does -- there's
+  // no write path for these two fields at all (read-only in this rail).
   useEffect(() => {
-    // Fetch on mount, then again every time memoryVersion is bumped (see
-    // mentor-context.tsx) -- setFacts above only ever runs after an
-    // awaited fetch, never synchronously inside this effect's own tick
-    // (same pattern/reasoning as rag-lab-client.tsx's loadRuns/loadSources).
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- async, not synchronous; the rule can't see past the await
-    loadFacts();
-  }, [memoryVersion]);
+    fetch('/api/mentor/memory')
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json();
+      })
+      .then((data: { journeyFields: JourneyHighlightField[] }) =>
+        setJourneyFields(data.journeyFields)
+      )
+      .catch((err) => {
+        console.error('[mentor] load journey fields failed:', err);
+        setJourneyFields([]);
+      });
+  }, []);
 
   // Fetch on mount, then again every time usageVersion is bumped (see
   // mentor-context.tsx) -- route.ts pushes that signal right after a turn
@@ -177,39 +237,27 @@ export function MentorControlsRail({
     }
   };
 
-  return (
-    <aside
+  // Everything the rail actually shows -- identical regardless of which
+  // shell (the desktop aside below, or the mobile/tablet Sheet above it)
+  // happens to be rendering it right now. A function, not a plain JSX
+  // variable, so the two real differences between the shells (top
+  // clearance, and width) can be passed in rather than baked in once.
+  // Width: the aside needs a fixed w-80 (it's what its own collapse
+  // animation widens/narrows between), but the Sheet's own panel is sized
+  // independently below -- a fixed w-80 here too, with shrink-0 on top of
+  // it, meant this content refused to shrink even when the Sheet's actual
+  // available width came in under 320px on a narrow phone, overflowing
+  // past the right edge. w-full here instead just fills whatever width
+  // the Sheet actually gives it.
+  const renderContent = (topPaddingClassName: string, widthClassName: string) => (
+    <div
       className={cn(
-        'hidden shrink-0 flex-col overflow-hidden border-r border-border bg-background-subtle/40 transition-[width] duration-200 ease-linear lg:flex',
-        open ? 'w-80' : 'w-12'
+        'flex h-full flex-col gap-5 overflow-y-auto px-5 pb-5',
+        widthClassName,
+        topPaddingClassName
       )}
     >
-      {/* Its own top bar, outside the fixed-w-80 content wrapper below --
-          staying full-width of whatever the aside currently is (80 or 12)
-          rather than clipped along with the rest, so the toggle itself
-          never disappears along with the content it's collapsing. */}
-      <div
-        className={cn(
-          'flex shrink-0 items-center p-2',
-          open ? 'justify-end' : 'justify-center'
-        )}
-      >
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => setOpen((o) => !o)}
-          aria-label={open ? 'Collapse chat controls' : 'Expand chat controls'}
-        >
-          {open ? (
-            <PanelLeftCloseIcon className="size-4" />
-          ) : (
-            <PanelLeftOpenIcon className="size-4" />
-          )}
-        </Button>
-      </div>
-
-      <div className="flex h-full w-80 shrink-0 flex-col gap-5 overflow-y-auto px-5 pb-5">
-        <div>
+      <div>
           <h2 className="text-sm font-semibold text-foreground">Chat controls</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Manage this conversation and what Eva remembers about you.
@@ -329,19 +377,50 @@ export function MentorControlsRail({
             ) : null}
           </div>
 
+          {/* Read-only -- see getProductAndCountryProgress's own comment
+              on why these two live in journey_setup_progress, not
+              profile_facts, and why "deleting" one doesn't make sense
+              the way it does for a loose fact. */}
+          {journeyFields && journeyFields.length > 0 && (
+            <>
+              <ul className="space-y-1.5">
+                {journeyFields.map((field) => (
+                  <li
+                    key={field.key}
+                    className="rounded-lg border border-border bg-background px-3 py-2"
+                  >
+                    <p className="text-xs font-medium text-foreground">
+                      {field.key === 'product' ? 'Export product' : 'Target market'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {field.detail ??
+                        (field.status === 'not_started'
+                          ? 'Not decided yet'
+                          : statusLabel(field.status))}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              {/* Only separates this block from the facts list below it --
+                  skip it when there's nothing there (no facts, see the
+                  empty-state condition right below) to separate from. */}
+              {facts && facts.length > 0 && <Separator />}
+            </>
+          )}
+
           {facts === null ? (
             <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
               <Spinner className="size-3.5" />
               Loading memory...
             </div>
-          ) : facts.length === 0 ? (
+          ) : facts.length === 0 && (!journeyFields || journeyFields.length === 0) ? (
             <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-4 py-6 text-center">
               <Brain className="size-5 text-muted-foreground/60" />
               <p className="text-xs text-muted-foreground">
                 Nothing saved yet — Eva fills this in as you chat.
               </p>
             </div>
-          ) : (
+          ) : facts.length > 0 ? (
             <ScrollArea className="-mx-1 max-h-72">
               <ul className="space-y-1.5 px-1">
                 {facts.map((fact) => (
@@ -357,7 +436,7 @@ export function MentorControlsRail({
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleDelete(fact.factType)}
+                      onClick={() => setFactPendingDelete(fact)}
                       disabled={busyFactType === fact.factType}
                       aria-label={`Forget ${fact.factType}`}
                       className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive disabled:opacity-50"
@@ -368,7 +447,39 @@ export function MentorControlsRail({
                 ))}
               </ul>
             </ScrollArea>
-          )}
+          ) : null}
+
+          <Dialog
+            open={factPendingDelete !== null}
+            onOpenChange={(open) => !open && setFactPendingDelete(null)}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Forget this?</DialogTitle>
+                <DialogDescription>
+                  Eva will stop remembering{' '}
+                  <span className="font-medium text-foreground">
+                    {factPendingDelete?.factValue}
+                  </span>
+                  . It can&rsquo;t be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setFactPendingDelete(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    if (factPendingDelete) handleDelete(factPendingDelete.factType);
+                    setFactPendingDelete(null);
+                  }}
+                >
+                  Forget it
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {adding ? (
             <div className="space-y-2 rounded-xl border border-border bg-background p-3">
@@ -401,14 +512,81 @@ export function MentorControlsRail({
             <button
               type="button"
               onClick={() => setAdding(true)}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 py-2.5 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/5"
             >
               <Plus className="size-3.5" />
               Add a memory
             </button>
           )}
         </div>
+    </div>
+  );
+
+  if (!isDesktop) {
+    return (
+      <>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setMobileOpen((o) => !o)}
+          aria-label={mobileOpen ? 'Close chat controls' : 'Open chat controls'}
+          className="fixed top-10 right-6 z-50 rounded-full border border-border bg-sidebar text-primary shadow-md"
+        >
+          <SlidersHorizontal className="size-4" />
+        </Button>
+        {/* [&>button]:hidden drops SheetContent's own built-in close (X)
+            button -- same fix ui/sidebar.tsx's own mobile Sheet already
+            uses for this exact conflict: that X sits at top-4 right-4,
+            same corner the external trigger above occupies, so the two
+            visibly overlapped. Dismiss via the trigger (now a toggle, not
+            just open) or tapping the overlay instead. */}
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent side="right" className="w-[88vw] max-w-sm gap-0 p-0 [&>button]:hidden">
+            <SheetHeader className="sr-only">
+              <SheetTitle>Chat controls</SheetTitle>
+              <SheetDescription>
+                Manage this conversation and what Eva remembers about you.
+              </SheetDescription>
+            </SheetHeader>
+            {renderContent('pt-14', 'w-full')}
+          </SheetContent>
+        </Sheet>
+      </>
+    );
+  }
+
+  return (
+    <aside
+      className={cn(
+        'flex shrink-0 flex-col overflow-hidden border-r border-border bg-background-subtle/40 transition-[width] duration-200 ease-linear',
+        open ? 'w-80' : 'w-12'
+      )}
+    >
+      {/* Its own top bar, outside the fixed-w-80 content wrapper below --
+          staying full-width of whatever the aside currently is (80 or 12)
+          rather than clipped along with the rest, so the toggle itself
+          never disappears along with the content it's collapsing. */}
+      <div
+        className={cn(
+          'flex shrink-0 items-center p-2',
+          open ? 'justify-end' : 'justify-center'
+        )}
+      >
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setOpen((o) => !o)}
+          aria-label={open ? 'Collapse chat controls' : 'Expand chat controls'}
+        >
+          {open ? (
+            <PanelLeftCloseIcon className="size-4" />
+          ) : (
+            <PanelLeftOpenIcon className="size-4" />
+          )}
+        </Button>
       </div>
+
+      {renderContent('', 'w-80 shrink-0')}
     </aside>
   );
 }

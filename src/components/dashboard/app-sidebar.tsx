@@ -76,7 +76,7 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
   const displayName = displayNameFor(user);
   const initials = initialsFor(user);
   const devNavItems = devNavItemsFor(user);
-  const { setOpen } = useSidebar();
+  const { setOpen, isMobile, setOpenMobile } = useSidebar();
   const { hasMessages } = useMentorChatState();
 
   // Collapse to icon-only once the mentor conversation actually has
@@ -122,7 +122,10 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
           // regardless.
           className="relative h-11 group-data-[collapsible=icon]:justify-center"
         >
-          <Link href={item.href}>
+          {/* Nothing closed the mobile Sheet on navigation -- a link click
+              only ever changes the route, it doesn't touch openMobile, so
+              the drawer stayed open over the new page underneath it. */}
+          <Link href={item.href} onClick={() => setOpenMobile(false)}>
             {isActive && (
               <motion.div
                 layoutId="sidebar-active-pill"
@@ -172,8 +175,18 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
 
   return (
     <Sidebar collapsible="icon" variant="inset">
-      <SidebarHeader className="gap-3 px-4 py-4">
-        <SidebarTrigger className="self-end group-data-[collapsible=icon]:self-center" />
+      {/* On mobile this header renders inside the Sheet drawer (see
+          ui/sidebar.tsx's own mobile branch) -- MobileSidebarTrigger
+          (dashboard/layout.tsx) is what opens it from outside, so this
+          SidebarTrigger would only ever toggle it straight back closed
+          there, on top of the Sheet's own built-in close (X) button
+          already covering that. Desktop-only; mt-8 on mobile instead
+          fills the room it would've taken, clearing the Sheet's own close
+          button in that same top-right corner. */}
+      <SidebarHeader className={cn('gap-3 px-4 py-4', isMobile && 'mt-8')}>
+        {!isMobile && (
+          <SidebarTrigger className="self-end group-data-[collapsible=icon]:self-center" />
+        )}
         <Link
           href="/dashboard"
           className="block text-sm font-semibold leading-relaxed group-data-[collapsible=icon]:hidden"
@@ -235,10 +248,14 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/account">Account</Link>
+              <Link href="/dashboard/account" onClick={() => setOpenMobile(false)}>
+                Account
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link href="/privacy">Privacy Policy</Link>
+              <Link href="/privacy" onClick={() => setOpenMobile(false)}>
+                Privacy Policy
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut()}>Log out</DropdownMenuItem>

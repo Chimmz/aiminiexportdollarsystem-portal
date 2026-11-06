@@ -1,5 +1,6 @@
 import { AppSidebar } from '@/components/dashboard/app-sidebar';
 import { DashboardMain } from '@/components/dashboard/dashboard-main';
+import { MobileSidebarTrigger } from '@/components/dashboard/mobile-sidebar-trigger';
 import { MentorChatStateProvider } from '@/contexts/mentor-context';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { requireCurrentUser } from '@/lib/actions/user-actions';
@@ -48,6 +49,16 @@ export default async function DashboardLayout({
             edge (more canvas visible there) without changing the left
             (already ml-0, flush against the rail), right, or bottom gaps. */}
         <SidebarInset className="md:peer-data-[variant=inset]:rounded-3xl! md:peer-data-[variant=inset]:shadow-none! md:peer-data-[variant=inset]:mt-4!">
+          {/* Below md, AppSidebar's own SidebarHeader (and the
+              SidebarTrigger living inside it) renders inside a Sheet that's
+              closed by default -- with no trigger anywhere outside that
+              Sheet, there was no way to ever open it on a real mobile
+              device (only the Cmd/Ctrl+B shortcut worked). Fixed/floating,
+              not an in-flow header bar, so it costs DashboardMain nothing --
+              that component's mentor-route branch depends on owning the
+              exact 100svh for its own internal scroll; an in-flow bar above
+              it would eat into that and overflow the viewport on mobile. */}
+          <MobileSidebarTrigger className="fixed top-10 left-3 z-50 rounded-full border border-border bg-sidebar text-primary shadow-md md:hidden" />
           {/* vh/svh resolves against the real viewport regardless of how
               ancestors are sized, rather than depending on flex-stretch
               sizing to count as "definite" through several nested flex

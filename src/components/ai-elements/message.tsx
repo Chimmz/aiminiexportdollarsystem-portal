@@ -305,18 +305,26 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
-// Eva never has a legitimate reason to render an inline markdown image --
-// every real visual in this chat goes through a dedicated tool-UI panel
-// (MediaGalleryPanel, ContactsCarousel, etc.), never through prose. Verified
-// live that the system prompt explicitly forbidding a markdown image tag
-// isn't 100% reliable on its own (gpt-4o-mini still wrote one in some
-// runs after searchMedia), so this renders nothing for any ![...](...) the
-// model writes anyway, regardless of what URL it points to -- a
-// deterministic backstop at the render layer instead of relying on
-// prompt compliance for something with zero legitimate use case to begin
-// with.
+// Eva never has a legitimate reason to render an inline markdown image, or
+// a real clickable link -- every real visual or resource in this chat
+// goes through a dedicated tool-UI panel (MediaGalleryPanel,
+// VideoGalleryPanel, ContactsCarousel, etc.), never through prose.
+// Verified live that the system prompt explicitly forbidding a markdown
+// image tag isn't 100% reliable on its own (gpt-4o-mini still wrote one
+// in some runs after searchMedia) -- same thing happens with a
+// searchVideos result: the prompt tells Eva never to write the video URL,
+// but she sometimes still does, and an unoverridden `a` renders that as a
+// real anchor a tap opens the browser's own link menu on (copy
+// link/open in new tab), nothing like the inline player the tool call
+// right below it already shows. Both get a deterministic backstop at the
+// render layer instead of relying on prompt compliance alone: `img`
+// renders nothing (no legitimate replacement content exists), `a` keeps
+// its text but drops the real anchor, so a stray link just reads as
+// plain words instead of becoming a tappable escape hatch out of the
+// chat.
 const streamdownComponents: MessageResponseProps['components'] = {
   img: () => null,
+  a: ({ children }) => <>{children}</>,
 };
 
 export const MessageResponse = memo(
