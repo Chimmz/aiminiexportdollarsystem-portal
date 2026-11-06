@@ -2,30 +2,49 @@ import Link from 'next/link';
 import { CheckCircle2Icon, Clock3Icon, XCircleIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { verifyAndActivatePayment } from '@/lib/actions/payments-actions';
+import { verifyAndActivatePayment, verifyAndActivateFlutterwavePayment } from '@/lib/actions/payments-actions';
 import { paymentSuccessCopy } from '@/lib/utils/plan-utils';
 
-// Where Paystack redirects the browser after checkout (see
-// initiatePlanPurchase's callback_url) — Paystack appends ?reference=...
-// &trxref=... itself, we don't construct those. The webhook
-// (/api/webhooks/paystack) is the reliable path that credits access even
-// if the buyer closes the tab before landing here; this page is just the
-// faster, user-facing confirmation. Only reached for checkouts NOT started
-// from the mentor page's access-limit bar -- those point Paystack straight
-// back at /dashboard/mentor instead (see initiatePlanPurchase's returnTo
-// and mentor-chat-client.tsx's arrival effect), which verifies itself and
+// Where the gateway redirects the browser after checkout (see
+// initiatePlanPurchase's / initiateFlutterwavePlanPurchase's
+// callback_url). Paystack appends ?reference=...&trxref=... itself;
+// Flutterwave appends ?status=...&tx_ref=...&transaction_id=... instead --
+// transaction_id's presence is what tells this page which gateway
+// actually sent the buyer back, since initiateFlutterwavePlanPurchase is
+// the active path now but Paystack's own params are still handled (never
+// deleted, see that function's own comment). The webhook
+// (/api/webhooks/paystack) is the reliable path that credits a Paystack
+// purchase even if the buyer closes the tab before landing here;
+// Flutterwave has no such webhook yet, so this page is the only credit
+// path for it right now (see verifyAndActivateFlutterwavePayment's own
+// comment). Only reached for checkouts NOT started from the mentor page's
+// access-limit bar -- those point straight back at /dashboard/mentor
+// instead (see both initiate* functions' returnTo and
+// mentor-chat-client.tsx's arrival effect), which verifies itself and
 // never routes through here at all.
 export default async function UpgradeCallbackPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reference?: string; trxref?: string }>;
+  searchParams: Promise<{
+    reference?: string;
+    trxref?: string;
+    tx_ref?: string;
+    transaction_id?: string;
+    status?: string;
+  }>;
 }) {
   const params = await searchParams;
-  const reference = params.reference ?? params.trxref;
 
-  const result = reference
-    ? await verifyAndActivatePayment(reference)
-    : { status: 'not_found' as const };
+  let result;
+  if (params.transaction_id && params.tx_ref) {
+    result =
+      params.status === 'cancelled'
+        ? ({ status: 'not_found' } as const)
+        : await verifyAndActivateFlutterwavePayment(params.tx_ref, params.transaction_id);
+  } else {
+    const reference = params.reference ?? params.trxref;
+    result = reference ? await verifyAndActivatePayment(reference) : ({ status: 'not_found' } as const);
+  }
 
   const successCopy =
     result.status === 'success' ? paymentSuccessCopy(result.planId, result.endsAt) : null;

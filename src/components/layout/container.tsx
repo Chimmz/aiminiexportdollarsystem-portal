@@ -10,3 +10,4 @@ export function Container({ className, ...props }: ComponentProps<'div'>) {
     />
   );
 }
+// Not a generic chatbot — a mentor that remembers your product, your budget, every step you've taken, so every answer is built around YOUR deal.

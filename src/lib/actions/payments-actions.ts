@@ -7,6 +7,10 @@ import { getCurrentUser } from '@/lib/actions/user-actions';
 import { createAccessPeriodForPayment } from '@/lib/actions/access-actions';
 import { sendUpgradeReceiptEmail } from '@/lib/actions/email-actions';
 import { initializeTransaction, verifyTransaction } from '@/lib/payments/paystack';
+import {
+  initializeTransaction as initializeFlutterwaveTransaction,
+  verifyTransaction as verifyFlutterwaveTransaction,
+} from '@/lib/payments/flutterwave';
 import { formatPlanPrice } from '@/lib/utils/plan-utils';
 
 // The in-portal counterpart to convert-lead.ts's sales-site flow: an
@@ -106,6 +110,78 @@ export async function initiatePlanPurchase(
   }
 }
 
+// TEMPORARY, same reasoning as mini-export-web's CHECKOUT_AMOUNT_NGN: every
+// in-app upgrade charges this flat ₦100 test amount while testing
+// end-to-end with real Flutterwave transactions, instead of each plan's
+// real price. upgrade-page-client.tsx's displayed card prices are
+// untouched -- they read tier.priceKobo straight from the `plans` prop
+// (plans-actions.ts), never through this constant. The payments row's own
+// amount_kobo is set to this same value, not the plan's real price,
+// because creditPayment refuses to credit unless the gateway's verified
+// amount matches amount_kobo exactly -- storing the real price here while
+// only ever charging ₦100 would make every upgrade fail verification.
+// Before launch: delete this and use plan.price_kobo again below.
+const FLUTTERWAVE_TEST_AMOUNT_KOBO = 10000; // ₦100
+
+// Flutterwave counterpart to initiatePlanPurchase above -- same pending-row-
+// first shape, same returnTo handling, same callback destinations. Kept as
+// a separate function rather than branching the one above on a gateway
+// param so Paystack's own path stays completely untouched and still
+// callable (upgrade-page-client.tsx just calls this one instead right
+// now -- see that file's own comment).
+export async function initiateFlutterwavePlanPurchase(
+  planId: string,
+  returnTo?: 'mentor'
+): Promise<{ authorizationUrl: string } | { error: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: 'Not signed in.' };
+
+  const supabase = createServiceClient();
+
+  const { data: plan } = await supabase
+    .from('plans')
+    .select('id, price_kobo, is_active')
+    .eq('id', planId)
+    .maybeSingle();
+  if (!plan || !plan.is_active) return { error: 'That plan is not available.' };
+
+  const reference = `portal_${randomUUID()}`;
+
+  const { data: payment, error: insertError } = await supabase
+    .from('payments')
+    .insert({
+      user_id: user.id,
+      plan_id: plan.id,
+      payment_reference: reference,
+      gateway: 'flutterwave',
+      amount_kobo: FLUTTERWAVE_TEST_AMOUNT_KOBO,
+      status: 'pending',
+    })
+    .select('id')
+    .single();
+  if (insertError || !payment) {
+    return { error: 'Could not start checkout. Try again.' };
+  }
+
+  try {
+    const siteOrigin = await getSiteOrigin();
+    const callbackPath =
+      returnTo === 'mentor' ? '/dashboard/mentor' : '/dashboard/upgrade/callback';
+    const { authorizationUrl } = await initializeFlutterwaveTransaction({
+      email: user.email,
+      amountKobo: FLUTTERWAVE_TEST_AMOUNT_KOBO,
+      reference,
+      callbackUrl: `${siteOrigin}${callbackPath}`,
+      metadata: { plan_id: plan.id, user_id: user.id },
+    });
+    return { authorizationUrl };
+  } catch (err) {
+    console.error('[payments] flutterwave initialize transaction failed:', err);
+    await supabase.from('payments').update({ status: 'failed' }).eq('id', payment.id);
+    return { error: 'Could not start checkout. Try again.' };
+  }
+}
+
 export type VerifyPaymentResult =
   | { status: 'success'; planId: string; endsAt: string | null }
   | { status: 'pending' | 'failed' | 'not_found' };
@@ -163,6 +239,67 @@ export async function verifyAndActivatePayment(
   }
 
   if (verified.status !== 'success') return { status: 'failed' };
+
+  const credited = await creditPayment({
+    paymentId: payment.id,
+    userId: payment.user_id,
+    planId: payment.plan_id,
+    expectedAmountKobo: payment.amount_kobo,
+    verifiedAmountKobo: verified.amountKobo,
+  });
+  if (!credited) return { status: 'failed' };
+
+  const endsAt = await getAccessPeriodEndsAt(payment.id);
+  return { status: 'success', planId: payment.plan_id, endsAt };
+}
+
+// Flutterwave counterpart to verifyAndActivatePayment above. The one real
+// difference: Flutterwave's own verify call needs ITS transaction_id, not
+// our payment_reference (see lib/payments/flutterwave.ts's own comment on
+// why) -- so this takes both, looks the payments row up by our reference
+// same as the Paystack path, then verifies with their id. No webhook
+// backs this one up yet (unlike Paystack's /api/webhooks/paystack) -- a
+// buyer who closes the tab mid-redirect before landing back on our
+// callback page won't get auto-credited the way a webhook retry would
+// eventually catch. Same trade-off mini-export-web's own Flutterwave
+// checkout already accepted; add a Flutterwave webhook later if that gap
+// turns out to matter in practice.
+export async function verifyAndActivateFlutterwavePayment(
+  reference: string,
+  transactionId: string
+): Promise<VerifyPaymentResult> {
+  const user = await getCurrentUser();
+  if (!user) return { status: 'not_found' };
+
+  const supabase = createServiceClient();
+  const { data: payment } = await supabase
+    .from('payments')
+    .select('id, user_id, plan_id, amount_kobo, status')
+    .eq('payment_reference', reference)
+    .maybeSingle();
+
+  if (!payment || payment.user_id !== user.id) return { status: 'not_found' };
+  if (payment.status === 'success') {
+    const endsAt = await getAccessPeriodEndsAt(payment.id);
+    return { status: 'success', planId: payment.plan_id, endsAt };
+  }
+  if (payment.status !== 'pending') return { status: 'failed' };
+
+  let verified;
+  try {
+    verified = await verifyFlutterwaveTransaction(transactionId);
+  } catch (err) {
+    console.error('[payments] flutterwave verify transaction failed:', err);
+    return { status: 'pending' };
+  }
+
+  // Also confirms the verified transaction is actually THIS payment's own
+  // reference, not some other transaction_id that happened to verify —
+  // transaction_id alone, unlike Paystack's reference-based verify, isn't
+  // scoped to what we expect it to be ahead of the call.
+  if (verified.status !== 'success' || verified.reference !== reference) {
+    return { status: 'failed' };
+  }
 
   const credited = await creditPayment({
     paymentId: payment.id,
@@ -248,7 +385,9 @@ export async function creditPayment(params: {
               year: 'numeric',
             })
           : null,
-        mentorUrl: `${siteOrigin}/dashboard/mentor`,
+        ctaUrl: `${siteOrigin}/dashboard/mentor`,
+        ctaLabel: 'Continue with Eva',
+        requiresSignIn: false,
       });
     }
   } catch (err) {

@@ -21,9 +21,10 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { Container } from '@/components/layout/container';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
 import { formatNaira } from '@/components/ui/naira-sign';
-import { initiatePlanPurchase } from '@/lib/actions/payments-actions';
+import { initiateFlutterwavePlanPurchase } from '@/lib/actions/payments-actions';
 import { formatPlanPrice, planPerMonthLabel, type PlanTier } from '@/lib/utils/plan-utils';
 import type { AccessStatus } from '@/lib/utils/user-utils';
 
@@ -92,13 +93,16 @@ export function UpgradePageClient({
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   // Set only when this page was reached via the mentor page's access-limit
   // bar (see access-limit-bar.tsx's ?from=mentor) -- threaded through to
-  // initiatePlanPurchase so Paystack redirects straight back to the
-  // mentor page instead of the generic Upgrade callback page.
+  // initiateFlutterwavePlanPurchase so Flutterwave redirects straight back
+  // to the mentor page instead of the generic Upgrade callback page.
   const returnTo = useSearchParams().get('from') === 'mentor' ? 'mentor' : undefined;
 
+  // Flutterwave only for now -- initiatePlanPurchase (Paystack) stays
+  // fully intact in payments-actions.ts, just not called from here. Swap
+  // this one call back if Paystack needs to be the active gateway again.
   async function handleUpgradeClick(planId: string) {
     setPendingPlanId(planId);
-    const result = await initiatePlanPurchase(planId, returnTo);
+    const result = await initiateFlutterwavePlanPurchase(planId, returnTo);
     if ('error' in result) {
       setPendingPlanId(null);
       toast('Could not start checkout', { description: result.error });
@@ -107,8 +111,12 @@ export function UpgradePageClient({
     window.location.assign(result.authorizationUrl);
   }
 
+  // Explicit here rather than left to DashboardMain's own automatic wrap
+  // (see that component's own comment) -- dashboard-main.tsx excludes
+  // this exact route from that wrap now, so this is the only Container
+  // around this page's content, not a second one nested inside it.
   return (
-    <div className="space-y-12 px-8 py-14">
+    <Container className="space-y-12 px-8 py-14">
       <FadeIn className="space-y-2 text-center">
         <p className="text-sm font-medium text-accent-gold">{header.eyebrow}</p>
         <h1 className="text-2xl font-semibold">{header.heading}</h1>
@@ -216,6 +224,6 @@ export function UpgradePageClient({
           </CardContent>
         </Card>
       </FadeIn>
-    </div>
+    </Container>
   );
 }

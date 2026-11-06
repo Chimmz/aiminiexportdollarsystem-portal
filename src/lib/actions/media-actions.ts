@@ -6,6 +6,7 @@ import {
   rankBySimilarity,
   rerank,
   semanticSearch,
+  tokenize,
   type BM25Doc,
 } from '@/lib/rag/retrieval';
 import {
@@ -131,7 +132,10 @@ async function searchFolder(folder: MediaFolder, query: string): Promise<MediaIt
   const index = await getFolderIndex(folder);
   if (index.items.length === 0) return [];
 
-  const bm25Docs: BM25Doc[] = index.items.map((item, i) => ({ id: String(i), tokens: item.tokens }));
+  const bm25Docs: BM25Doc[] = index.items.map((item, i) => ({
+    id: String(i),
+    tokens: item.tokens,
+  }));
 
   const [keywordResults, semanticResults] = await Promise.all([
     keywordSearch<MediaItem>(async () =>
@@ -142,7 +146,11 @@ async function searchFolder(folder: MediaFolder, query: string): Promise<MediaIt
     semanticSearch<MediaItem>(query, async (queryEmbedding) =>
       rankBySimilarity(
         queryEmbedding,
-        index.items.map((item, i) => ({ id: String(i), vector: index.embeddings[i], item }))
+        index.items.map((item, i) => ({
+          id: String(i),
+          vector: index.embeddings[i],
+          item,
+        }))
       ).filter((r) => (r.score ?? 0) >= MIN_SEMANTIC_SCORE)
     ),
   ]);
@@ -154,9 +162,63 @@ async function searchFolder(folder: MediaFolder, query: string): Promise<MediaIt
 // regardless of packaging style. Capped small (not the whole folder):
 // several of this course's example products have 5-6 near-duplicate
 // shots, and nobody needs to see all of them to get the idea.
-export async function getMediaForProduct(product: string, cap = 3): Promise<MediaItem[]> {
+export async function getMediaForProduct(product: string, cap = 5): Promise<MediaItem[]> {
   const ranked = await searchFolder('Packaged Products', product);
   return ranked.slice(0, cap);
+}
+
+// Filenames can carry Cloudinary processing artifacts that are never a
+// real packaging descriptor -- stripped here specifically, not reused
+// from media-utils.ts's PACKAGING_VOCABULARY, since that set mixes real
+// material words (pouch, bottle, bag) in with presentation/process noise
+// for a different purpose (grouping photos by product); this function
+// wants the opposite split, keep material words, drop only genuine
+// noise.
+const FILENAME_NOISE_TOKENS = new Set(['removebg', 'preview', 'front', 'back', 'view']);
+
+// searchKb has no per-product packaging-format coverage (confirmed
+// against the real course material -- it just isn't there), so
+// search-contacts-tool.ts falls back to this when it needs a specific
+// packaging term (e.g. "ziplock") to search the logistics directory
+// with, instead of a generic word like "packaging". Resolves it from the
+// one place it's genuinely recorded instead: real product packaging
+// photos already filed under that product. Finds the closest-matching
+// photo for `product`, then returns whatever's left in its filename once
+// the product's own name is subtracted out -- "crayfish-ziplock-pack"
+// matched against "crayfish" returns "ziplock pack". Not built on
+// PACKAGING_VOCABULARY (see FILENAME_NOISE_TOKENS above) -- that list is
+// tuned to catch common cases, not guaranteed complete, and a real term
+// like "ziplock" isn't in it; subtracting the known product name instead
+// works for whatever word is actually there, no vocabulary to maintain.
+export async function getPackagingTermForProduct(
+  product: string
+): Promise<string | null> {
+  const ranked = await searchFolder('Packaged Products', product);
+  if (ranked.length === 0) {
+    console.log('[mentor] getPackagingTermForProduct: no photo matched', { product });
+    return null;
+  }
+
+  const productTokens = new Set(tokenize(product));
+  const leftover = ranked[0].tokens.filter(
+    (t) => !productTokens.has(t) && !FILENAME_NOISE_TOKENS.has(t)
+  );
+  // ' or ', not a plain space: the caller sends this straight into a
+  // Postgres websearch_to_tsquery, which ANDs space-separated terms by
+  // default -- a two-word leftover like "ziplock pack" would then only
+  // match a contact whose offer text happens to contain both words,
+  // when really either one alone is a fine signal of the right contact.
+  // websearch_to_tsquery recognizes the literal word "or" as its OR
+  // operator, so this turns the same leftover into "ziplock or pack".
+  const term = leftover.length > 0 ? leftover.join(' or ') : null;
+  console.log('[mentor] getPackagingTermForProduct:', {
+    product,
+    matchedPublicId: ranked[0].publicId,
+    matchedTokens: ranked[0].tokens,
+    leftover,
+    term,
+  });
+  return term;
 }
 
 // A packaging style is in context with no specific product -- show that
@@ -164,7 +226,10 @@ export async function getMediaForProduct(product: string, cap = 3): Promise<Medi
 // the same one. selectDiverseTopMatches does the "one per product first"
 // pass; ranked is already the full, relevance-ordered folder so it has
 // everything to choose from.
-export async function getMediaForPackagingStyle(style: string, cap = 4): Promise<MediaItem[]> {
+export async function getMediaForPackagingStyle(
+  style: string,
+  cap = 4
+): Promise<MediaItem[]> {
   const ranked = await searchFolder('Packaged Products', style);
   return selectDiverseTopMatches(ranked, cap);
 }

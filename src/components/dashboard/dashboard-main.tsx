@@ -9,9 +9,18 @@ import { Container } from '@/components/layout/container';
 // needs the full card to itself. A Server Component layout can't branch on
 // the route itself, so this one-purpose client wrapper exists just to read
 // the pathname and pick a width -- see dashboard/layout.tsx.
+//
+// /dashboard/resources and /dashboard/upgrade (exact match -- not its
+// /callback child, which still wants the automatic wrap) now wrap their
+// own content in Container directly instead of relying on this automatic
+// one, so they're excluded here too -- otherwise they'd end up nested
+// inside two Containers.
+const SELF_WRAPPED_ROUTES = ['/dashboard/resources', '/dashboard/upgrade'];
+
 export function DashboardMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isMentor = pathname?.startsWith('/dashboard/mentor') ?? false;
+  const isSelfWrapped = pathname ? SELF_WRAPPED_ROUTES.includes(pathname) : false;
 
   return (
     // overflow-y-auto is the actual fix here -- without it, content taller
@@ -33,7 +42,7 @@ export function DashboardMain({ children }: { children: React.ReactNode }) {
     // including the empty margins left/right of the centered column; only
     // the content inside is capped and centered.
     <div className="h-[100svh] w-full overflow-y-auto">
-      {isMentor ? children : <Container>{children}</Container>}
+      {isMentor || isSelfWrapped ? children : <Container>{children}</Container>}
     </div>
   );
 }

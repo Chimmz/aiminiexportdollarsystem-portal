@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { BookOpenIcon, DownloadIcon, UsersIcon } from 'lucide-react';
 import {
   Accordion,
@@ -13,18 +14,34 @@ import { Spinner } from '@/components/ui/spinner';
 import { resources } from '@/lib/mock-data/resources';
 import { FadeIn, HoverLift } from '@/components/motion/fade-in';
 import { useResourceDownload } from '@/hooks/use-resource-download';
+import { Container } from '@/components/layout/container';
 
 export default function ResourcesPage() {
   const { downloadingId, download } = useResourceDownload();
 
+  // Explicit here rather than left to DashboardMain's own automatic wrap
+  // (see that component's own comment) -- dashboard-main.tsx excludes
+  // this exact route from that wrap now, so this is the only Container
+  // around this page's content, not a second one nested inside it.
   return (
-    <div className="space-y-12 px-8 py-14">
+    <Container className="space-y-12 px-8 py-14">
       <FadeIn className="space-y-2">
         <h1 className="text-2xl font-semibold">Your Resources ({resources.length})</h1>
         <p className="max-w-prose text-sm text-muted-foreground">
           The guide and bonus contact lists that came with your purchase. Download them to
           see what&apos;s inside.
         </p>
+      </FadeIn>
+
+      <FadeIn delay={0.03}>
+        <Image
+          src="/mini-export-bundle.webp"
+          alt="The Mini Export Dollar System guide, bundled with all 3 bonus contact lists"
+          width={1264}
+          height={848}
+          className="h-auto w-full rounded-2xl shadow-soft"
+          priority
+        />
       </FadeIn>
 
       <div className="space-y-6">
@@ -80,6 +97,6 @@ export default function ResourcesPage() {
           </FadeIn>
         ))}
       </div>
-    </div>
+    </Container>
   );
 }
