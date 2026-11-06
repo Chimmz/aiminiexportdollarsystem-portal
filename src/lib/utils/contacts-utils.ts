@@ -49,7 +49,10 @@ function matchesAny(fields: (string | null)[], needle: string): boolean {
 // so this is an OR across the whole array, not an AND. Used by
 // contacts-actions.ts to filter rows in JS after the DB-side text search
 // has already narrowed things down.
-export function matchesAnyLocation(fields: (string | null)[], locations: string[] | null): boolean {
+export function matchesAnyLocation(
+  fields: (string | null)[],
+  locations: string[] | null
+): boolean {
   if (!locations || locations.length === 0) return true;
   return locations.some((loc) => matchesAny(fields, loc));
 }
@@ -57,8 +60,7 @@ export function matchesAnyLocation(fields: (string | null)[], locations: string[
 // A products/service/offer cell is itself a delimited list, e.g. "Cartons
 // | Ziploc bags | Dehydrators" (see the pipe-separated badge rendering in
 // tools-ui/contacts-carousel.tsx) -- split and dedupe into individual
-// terms instead of handing back whole raw cells. Used both by
-// contacts-actions.ts's getKnownProductVocabulary and by
+// terms instead of handing back whole raw cells. Used by
 // summarizeContactsForModel below.
 export function splitVocabularyTerms(raw: string | null): string[] {
   if (!raw) return [];
@@ -247,14 +249,18 @@ export interface ContactsSummaryForModel {
 const SUMMARY_LOCATIONS_CAP = 10;
 const SUMMARY_PRODUCTS_CAP = 10;
 
-export function summarizeContactsForModel(contacts: ContactCard[]): ContactsSummaryForModel {
+export function summarizeContactsForModel(
+  contacts: ContactCard[]
+): ContactsSummaryForModel {
   const locations = [
     ...new Set(contacts.map((c) => c.location).filter((l): l is string => Boolean(l))),
   ].slice(0, SUMMARY_LOCATIONS_CAP);
 
   const products = [
     ...new Set(
-      contacts.flatMap((c) => splitVocabularyTerms(c.summary?.replace(/^[^:]+:\s*/, '') ?? null))
+      contacts.flatMap((c) =>
+        splitVocabularyTerms(c.summary?.replace(/^[^:]+:\s*/, '') ?? null)
+      )
     ),
   ].slice(0, SUMMARY_PRODUCTS_CAP);
 

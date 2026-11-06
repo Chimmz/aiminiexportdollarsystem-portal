@@ -5,12 +5,13 @@ import { savePriceQuote } from '@/lib/actions/pricing-actions';
 
 // Called directly from PricingCalculatorPanel on Save, not through the
 // chat/LLM loop -- see pricing-actions.ts for why the structured numbers
-// bypass manageMemory entirely. Auth here is the same getCurrentUser()
+// bypass the chat memory extraction entirely. Auth here is the same getCurrentUser()
 // pattern /api/mentor/chat uses, just with a real 401 instead of a null
 // fallback, since there's no sensible "signed-out" behavior for saving a
 // quote.
 
 const PriceQuoteSchema = z.object({
+  toolCallId: z.string().min(1),
   product: z.string().nullable(),
   totalCost: z.number().positive(),
   totalQuantity: z.number().positive(),

@@ -15,45 +15,35 @@ export function createMediaSearchTool() {
     description: `Show real reference photos of product packaging when the
       conversation is actually about packaging, labeling, product design,
       or branding -- call this instead of only describing what good
-      packaging looks like in text. Covers two different things, see the
-      intent field for which one applies.`,
+      packaging looks like in text. See intent for which of two things
+      applies.`,
     inputSchema: z.object({
-      intent: z
-        .enum(['product_or_style_example', 'packaging_rules'])
-        .describe(
-          `"product_or_style_example": the user wants to see what a
-            specific product's packaging looks like, or what a specific
-            packaging style (pouch, bottle, container, etc.) looks like in
-            general -- fill product and/or packagingStyle below.
-            "packaging_rules": the conversation is about the general rules
-            for what information goes on a package (front vs back label
-            content, what's required, how to lay it out) -- not about one
-            product or style specifically. These pull from two different
-            photo sets and shouldn't be mixed up: rules examples are
-            front+back label shots meant to teach the general standard,
-            product/style examples are just what a finished package looks
-            like.`
-        ),
+      intent: z.enum(['product_or_style_example', 'packaging_rules']).describe(
+        `"product_or_style_example": the user wants to see a specific
+            product's packaging, or a packaging style (pouch, bottle,
+            container) in general -- fill product and/or packagingStyle.
+            "packaging_rules": the conversation's about general front/back
+            label rules, not one product or style -- these pull from a
+            different photo set (front+back shots teaching the standard,
+            not a finished package look).`
+      ),
       product: z
         .string()
         .nullable()
         .describe(
           `The specific product being discussed, resolved from the
-            conversation if not in the latest message, e.g. "kilishi" or
-            "palm oil". Set this whenever a specific product is in
-            context, even for intent "packaging_rules" (it narrows which
-            rules example gets shown, if one for that product exists).
-            Null if no specific product is the focus.`
+            conversation if not in the latest message, e.g. "kilishi".
+            Set this even for intent "packaging_rules" (narrows which
+            example shows, if one exists). Null if no specific product is
+            the focus.`
         ),
       packagingStyle: z
         .string()
         .nullable()
         .describe(
-          `The packaging style being discussed, e.g. "pouch", "bottle",
-            "container" -- only meaningful when product is null (a
-            specific product's own packaging style is shown automatically
-            once product is set, this field is for "what does a pouch
-            look like" with no product in mind). Null otherwise.`
+          `The packaging style discussed, e.g. "pouch", "bottle" -- only
+            meaningful when product is null (a product's own style shows
+            automatically once product is set). Null otherwise.`
         ),
     }),
     execute: async ({ intent, product, packagingStyle }) => {
@@ -80,7 +70,10 @@ export function createMediaSearchTool() {
             if (fallbackImages.length > 0) return { images: fallbackImages };
           }
 
-          return { images: [], note: 'No packaging-rules reference photos available right now.' };
+          return {
+            images: [],
+            note: 'No packaging-rules reference photos available right now.',
+          };
         }
 
         if (product) {

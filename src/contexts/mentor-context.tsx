@@ -11,29 +11,27 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 // icon-only once a conversation starts and auto-expand again back on the
 // empty-state hero.
 //
-// memoryVersion: bumped by MentorChatClient's useChat onData handler
-// whenever route.ts's stream carries a 'frontend-action': 'refresh-sidebar'
-// data part (written only when manageMemory actually saved something mid-
-// turn -- see that file's comment) -- read by MentorControlsRail so it
-// refetches its memory list right away instead of only on mount.
+// usageVersion: bumped by MentorChatClient's useChat onData handler
+// whenever route.ts's stream carries a 'frontend-action': 'refresh-usage'
+// data part -- written whenever a turn actually recorded token usage
+// (i.e. almost every turn). Read by MentorControlsRail to refetch both
+// halves of its Usage section (the line chart's history and the trial
+// donut's lifetime total) the moment new usage exists, rather than
+// polling on a timer for a number that only ever changes right after a
+// turn completes. Memory has no equivalent version here anymore -- its
+// refresh goes through router.refresh() re-running page.tsx's own
+// server-side fetch instead (see mentor-chat-client.tsx and
+// mentor-controls-rail.tsx), since a push-through-the-stream signal has
+// nowhere to come from once the save itself moved into route.ts's
+// onFinish (no `writer` there).
 //
-// usageVersion: same push mechanism, but for 'refresh-usage' -- written
-// whenever a turn actually recorded token usage (i.e. almost every turn,
-// unlike the conditional memory one). Read by MentorControlsRail to
-// refetch both halves of its Usage section (the line chart's history and
-// the trial donut's lifetime total) the moment new usage exists, rather
-// than polling on a timer for a number that only ever changes right after
-// a turn completes.
-//
-// No other route needs either, and MentorChatClient is the only writer of
-// both, so a single context beats threading props through
-// dashboard/layout.tsx for values only one of its many child routes ever
+// No other route needs this, and MentorChatClient is the only writer of
+// it, so a single context beats threading a prop through
+// dashboard/layout.tsx for a value only one of its many child routes ever
 // sets.
 interface MentorChatStateValue {
   hasMessages: boolean;
   setHasMessages: (value: boolean) => void;
-  memoryVersion: number;
-  bumpMemoryVersion: () => void;
   usageVersion: number;
   bumpUsageVersion: () => void;
 }
@@ -42,17 +40,13 @@ const MentorChatStateContext = createContext<MentorChatStateValue | null>(null);
 
 export function MentorChatStateProvider({ children }: { children: ReactNode }) {
   const [hasMessages, setHasMessages] = useState(false);
-  const [memoryVersion, setMemoryVersion] = useState(0);
   const [usageVersion, setUsageVersion] = useState(0);
-  const bumpMemoryVersion = useCallback(() => setMemoryVersion((v) => v + 1), []);
   const bumpUsageVersion = useCallback(() => setUsageVersion((v) => v + 1), []);
   return (
     <MentorChatStateContext.Provider
       value={{
         hasMessages,
         setHasMessages,
-        memoryVersion,
-        bumpMemoryVersion,
         usageVersion,
         bumpUsageVersion,
       }}
@@ -73,8 +67,6 @@ export function useMentorChatState(): MentorChatStateValue {
     ctx ?? {
       hasMessages: false,
       setHasMessages: () => {},
-      memoryVersion: 0,
-      bumpMemoryVersion: () => {},
       usageVersion: 0,
       bumpUsageVersion: () => {},
     }

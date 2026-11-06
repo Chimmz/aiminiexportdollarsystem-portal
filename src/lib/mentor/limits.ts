@@ -42,8 +42,8 @@ export const RATE_LIMIT_TOKENS_PAID = 900_000;
 // meant to behave like working memory (what's relevant to the
 // conversation right now), not a second long-term memory system --
 // recalling something from months ago is exactly what the separate
-// profile_facts table (see manageMemory/MEMORY in config.ts) already
-// exists to carry forward on purpose, permanently. A fixed cap here
+// profile_facts table (see lib/mentor/memory-extraction.ts and MEMORY in
+// config.ts) already exists to carry forward on purpose, permanently. A fixed cap here
 // rather than one that grows with total history size keeps the number
 // predictable to reason about while these figures are still being tuned.
 // 'active' covers paid users; 'expired' never reaches this (blocked

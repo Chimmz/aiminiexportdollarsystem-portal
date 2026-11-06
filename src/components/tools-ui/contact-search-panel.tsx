@@ -26,8 +26,14 @@ import type { ContactCard, ContactType } from '@/lib/utils/contacts-utils';
 // paperwork, Globe-ish feel for buyers abroad covered by UsersIcon's
 // international-buyer badge having its own icon below.
 const CONTACT_TYPE_META: Record<ContactType, { icon: LucideIcon; label: string }> = {
-  international_buyers_of_food_products: { icon: UsersIcon, label: 'International buyers' },
-  local_raw_processed_food_product_suppliers: { icon: WarehouseIcon, label: 'Local suppliers' },
+  international_buyers_of_food_products: {
+    icon: UsersIcon,
+    label: 'International buyers',
+  },
+  local_raw_processed_food_product_suppliers: {
+    icon: WarehouseIcon,
+    label: 'Local suppliers',
+  },
   local_packaging_shipping_logistics: { icon: TruckIcon, label: 'Logistics & packaging' },
   local_documentation_regulatory_contacts: { icon: FileTextIcon, label: 'Documentation' },
 };
@@ -36,8 +42,7 @@ const CONTACT_TYPE_META: Record<ContactType, { icon: LucideIcon; label: string }
 // searchContacts tool's output -- the carousel stays the main,
 // always-visible result, same as before. This is the technical detail
 // around it: what was actually searched and which directories it came
-// from, collapsed by default, same pattern as SearchKbPanel and
-// MemoryUpdatesPanel.
+// from, collapsed by default, same pattern as SearchKbPanel.
 export function ContactSearchPanel({
   query,
   locations,

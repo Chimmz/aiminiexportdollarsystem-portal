@@ -13,11 +13,14 @@ import { getTools } from '@/lib/ai/tools';
 import { getCurrentUserFirstName } from '@/lib/utils/user-utils';
 import { getCurrentUser } from '@/lib/actions/user-actions';
 import { getUserMemory } from '@/lib/actions/memory-actions';
+import { hasNoMemory } from '@/lib/utils/memory-utils';
 import {
   clearMentorMessages,
   getMentorMessages,
   saveMentorMessages,
 } from '@/lib/actions/mentor-messages-actions';
+import { getMessageText } from '@/lib/utils/conversation-utils';
+import { extractAndUpdateMemory } from '@/lib/mentor/memory-extraction';
 import { recordTokenUsage } from '@/lib/actions/token-usage-actions';
 import { activateUserOnFirstMessage } from '@/lib/actions/access-actions';
 import { getFxRates } from '@/lib/actions/fx-actions';
@@ -25,11 +28,10 @@ import { buildSystemPrompt } from './config';
 import { checkMentorChatLimits, redactSearchContactsOutputs } from './_utils';
 import { buildWorkingMemoryMessages } from '@/lib/mentor/working-memory';
 import { WORKING_MEMORY_LIMITS } from '@/lib/mentor/limits';
-import { generateNextSteps } from '@/lib/mentor/next-steps';
 
 // Matt Pocock's InferUITools trick: map getTools()'s own inferred return
 // type into each tool's { input, output } shape, so every tool part
-// (part.type 'tool-searchKb', 'tool-manageMemory', etc.) is precisely
+// (part.type 'tool-searchKb', 'tool-searchContacts', etc.) is precisely
 // typed end to end -- here and in every mentor chat UI file below --
 // instead of the manual `part.input as {...}` / `part.output as {...}`
 // casts ConversationMessages used to need for each one.
@@ -38,31 +40,37 @@ type AppTools = InferUITools<Awaited<ReturnType<typeof getTools>>>;
 // The one UI message type used throughout the mentor chat -- this route's
 // streamText response, useChat in mentor-chat-client.tsx, and the parts
 // switch in conversation-messages.tsx all import it from here rather than
-// using the generic UIMessage. No message metadata (first type param)
-// yet, hence `never`.
+// using the generic UIMessage.
+//
+// Metadata (first type param): createdAt, for the chat's per-message
+// timestamp (lib/utils/time-utils.ts). Persisted messages get it from the
+// messages table's own created_at (mentor-messages-actions.ts's
+// getMentorMessages); a message created live in this session gets it from
+// mentor-chat-client.tsx's own sendMessage calls (the user's side) or this
+// route's messageMetadata callback below (Eva's side, set at the 'start'
+// stream event, not 'finish' -- close enough to when she actually started
+// answering, not when she happened to finish). reaction/reactionNote are
+// optional and only ever populated by getMentorMessages reading them back
+// off the DB (see migrations/0029_message_reaction.sql) -- a message
+// created live in this session has neither yet, since the like/dislike
+// row (MessageFeedback) only ever appears once a reply is actually
+// rendered, after which it starts persisting its own state directly via
+// PATCH /api/mentor/messages/[id]/reaction, independent of this route.
 //
 // 'frontend-action': a signal-only data part with no visual rendering of
 // its own (ConversationMessages never matches it in its parts switch).
-// 'refresh-sidebar' is written whenever manageMemory actually saved
-// something mid-turn; 'refresh-usage' is written whenever this turn
-// recorded real token usage (i.e. almost every turn, unlike the
-// conditional memory one). mentor-chat-client.tsx's useChat onData
-// watches for both and tells the chat-controls rail -- a tree sibling,
-// not a descendant, see mentor-context.tsx -- to refetch memory/usage
-// right away instead of only loading them once on mount.
-//
-// 'next-steps': the suggestion chips, written once per turn by
-// generateNextSteps (lib/mentor/next-steps.ts) after Eva's reply
-// finishes -- a deterministic, code-triggered call, not a tool the main
-// model decides whether to use (see that file's own comment for why).
-// mentor-chat-client.tsx reads this straight off the last assistant
-// message's parts, same as it read the old tool's output.
+// 'refresh-usage' is written whenever this turn recorded real token
+// usage (i.e. almost every turn). mentor-chat-client.tsx's useChat onData
+// watches for it and tells the chat-controls rail -- a tree sibling, not
+// a descendant, see mentor-context.tsx -- to refetch usage right away
+// instead of only loading it once on mount. Memory has no equivalent
+// push anymore -- extractAndUpdateMemory runs in onFinish below, which
+// has no `writer` to push through, so the client instead just calls
+// router.refresh() after every turn (see mentor-chat-client.tsx) to pull
+// fresh server-rendered facts back down, same idea, different mechanism.
 export type AppMessage = UIMessage<
-  never,
-  {
-    'frontend-action': 'refresh-sidebar' | 'refresh-usage';
-    'next-steps': { suggestions: string[] };
-  },
+  { createdAt: string; reaction?: 'like' | 'dislike' | null; reactionNote?: string | null },
+  { 'frontend-action': 'refresh-usage' },
   AppTools
 >;
 
@@ -101,10 +109,7 @@ export async function POST(req: Request) {
   const tier = limitCheck.tier;
 
   // The reconstructed full conversation: everything already persisted for
-  // this user, plus the one new message the client just sent. Every
-  // `messages` reference below (working memory, originalMessages, onFinish's
-  // slice) still means exactly what it meant back when the client itself
-  // sent the whole array -- only where the array comes from changed.
+  // this user, plus the one new message the client just sent.
   const messages: AppMessage[] = [...conversationHistory, message];
 
   // Working memory (lib/mentor/working-memory.ts): trims that reconstructed
@@ -123,19 +128,27 @@ export async function POST(req: Request) {
   // first call, so this adds no real latency past a cold start.
   // activateUserOnFirstMessage only does anything the very first time
   // (user.activatedAt is the guard) -- see access-actions.ts for the full
-  // chaining algorithm it runs then.
+  // chaining algorithm it runs then. userMemory here is this turn's
+  // starting state -- nothing else writes to it mid-turn anymore (no
+  // memory tool exists for the main model to call), so it's exactly what
+  // extractAndUpdateMemory below needs as "what's already known" once the
+  // turn finishes.
   const [userMemory, tools] = await Promise.all([
     getUserMemory(user.id),
-    getTools(modelMessages, user.id),
+    getTools(modelMessages),
     user.activatedAt ? Promise.resolve() : activateUserOnFirstMessage(user.id),
   ]);
 
-  // True for exactly one request ever, per user: activateUserOnFirstMessage
-  // above only sets users.activated_at once it's still null going into
-  // this request, so this read (from the user object fetched before that
-  // write happens) is a clean "is this literally their first message ever"
-  // signal -- false again from their very next message onward, forever.
-  const isFirstEverMessage = !user.activatedAt;
+  // Genuinely "first message ever," not just "first message since
+  // activated_at was last set" -- users.activated_at is a billing-access
+  // concept (see access-actions.ts), and this is a test/dev account that
+  // gets reactivated across cleared conversations, which made it a false
+  // signal here. The real thing this gates (FIRST MESSAGE EVER in
+  // config.ts -- mirroring their opener, the one-time PDF guide check-in)
+  // actually means "no prior conversation, and nothing remembered about
+  // them yet" -- conversationHistory and userMemory above already answer
+  // exactly that, directly.
+  const isFirstEverMessage = conversationHistory.length === 0 && hasNoMemory(userMemory);
 
   const systemPrompt = buildSystemPrompt(
     userFirstName,
@@ -152,9 +165,8 @@ export async function POST(req: Request) {
     // Default is isStepCount(1) — the model would call the tool and the
     // loop would stop right there, never reading the tool's result back to
     // actually answer. 6 gives headroom for a retrieval/contacts tool call,
-    // a manageMemory call, and the final answer, without risking a runaway
-    // loop. suggestNextSteps no longer competes for one of these steps --
-    // see lib/mentor/next-steps.ts.
+    // a suggestNextSteps call, and the final answer, without risking a
+    // runaway loop.
     stopWhen: stepCountIs(6),
     prepareStep: ({ messages: stepMessages }) => ({
       messages: redactSearchContactsOutputs(stepMessages),
@@ -174,7 +186,13 @@ export async function POST(req: Request) {
     stream: createUIMessageStream<AppMessage>({
       originalMessages: messages,
       async execute({ writer }) {
-        writer.merge(toUIMessageStream({ stream: result.stream }));
+        writer.merge(
+          toUIMessageStream({
+            stream: result.stream,
+            messageMetadata: ({ part }) =>
+              part.type === 'start' ? { createdAt: new Date().toISOString() } : undefined,
+          })
+        );
 
         // result.steps/result.usage both resolve once the full (possibly
         // multi-step) run finishes, independent of the merge above --
@@ -187,21 +205,7 @@ export async function POST(req: Request) {
         // their own step under stopWhen above), not just the last one --
         // that's the real number checkMentorChatLimits' budget/rate-limit
         // math is counting against, not an estimate.
-        const [steps, usage, finalText] = await Promise.all([
-          result.steps,
-          result.usage,
-          result.text,
-        ]);
-
-        // Tell the chat-controls rail to refetch its memory list (via the
-        // data part below) only when manageMemory actually ran this turn,
-        // not on every single reply.
-        const memoryToolWasCalled = steps.some((step) =>
-          step.toolCalls.some((call) => call?.toolName === 'manageMemory')
-        );
-        if (memoryToolWasCalled) {
-          writer.write({ type: 'data-frontend-action', data: 'refresh-sidebar' });
-        }
+        const [steps, usage] = await Promise.all([result.steps, result.usage]);
 
         // Visibility into what each turn actually costs, broken down by
         // step -- a multi-step tool-calling loop resends the full system
@@ -222,25 +226,14 @@ export async function POST(req: Request) {
           totalTokens: usage.totalTokens,
         });
 
-        // Independent of each other -- run together rather than one after
-        // the other.
-        await Promise.all([
-          (async () => {
-            if (!usage.totalTokens) return;
-            try {
-              await recordTokenUsage(user.id, usage.totalTokens);
-              writer.write({ type: 'data-frontend-action', data: 'refresh-usage' });
-            } catch (err) {
-              console.error('[mentor] record token usage failed:', err);
-            }
-          })(),
-          (async () => {
-            const suggestions = await generateNextSteps(modelMessages, finalText);
-            if (suggestions.length > 0) {
-              writer.write({ type: 'data-next-steps', data: { suggestions } });
-            }
-          })(),
-        ]);
+        if (usage.totalTokens) {
+          try {
+            await recordTokenUsage(user.id, usage.totalTokens);
+            writer.write({ type: 'data-frontend-action', data: 'refresh-usage' });
+          } catch (err) {
+            console.error('[mentor] record token usage failed:', err);
+          }
+        }
       },
       onFinish: async ({ messages: finalMessages }) => {
         // `messages` (the request body) already includes the user's new
@@ -250,10 +243,27 @@ export async function POST(req: Request) {
         // so everything from index messages.length - 1 onward is exactly
         // the turn this request produced.
         const newMessages = finalMessages.slice(messages.length - 1);
+        const [userMsg, ...assistantMsgs] = newMessages;
+
+        // Both happen once per turn, off the same newMessages -- persist
+        // first, then the deterministic memory extraction (see
+        // lib/mentor/memory-extraction.ts for why this replaced the old
+        // manageMemory tool entirely). userMemory is this turn's starting
+        // state, from before the model ran -- nothing else writes to it
+        // mid-turn, so it's exactly what "what's already known" should
+        // mean here. newMessages[0] is the user's message, the rest
+        // (normally just one) is Eva's reply.
         try {
           await saveMentorMessages(user.id, newMessages);
+          await extractAndUpdateMemory(user.id, userMemory, {
+            userText: userMsg ? getMessageText(userMsg) : '',
+            assistantText: assistantMsgs.map((m) => getMessageText(m)).join('\n'),
+          });
         } catch (err) {
-          console.error('[mentor] persist messages failed:', err);
+          console.error(
+            '[mentor] onFinish failed (persist messages or memory extraction):',
+            err
+          );
         }
       },
     }),

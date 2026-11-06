@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Carousel,
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { NairaAmount, NairaSign } from '@/components/ui/naira-sign';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
+import type { SavedPriceQuote } from '@/lib/actions/pricing-actions';
 import {
   Calculator,
   Check,
@@ -25,6 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Info,
   TriangleAlert,
 } from 'lucide-react';
 
@@ -50,6 +52,14 @@ import {
 // first field in the whole panel may have autoFocus -- a second autoFocus
 // on a later step previously stole focus into an off-screen input on
 // mount. Don't add autoFocus to any field below except totalCost's.
+//
+// Each step's content sits in its own <form> (Enter submits/advances) and
+// is measured with a ResizeObserver (see stepRefs/contentHeight below) so
+// the carousel's visible height always matches whichever step is actually
+// showing -- Embla itself sizes its track to the tallest mounted slide
+// (step 4, with the market-check links and comparison banner), which
+// otherwise left steps 1-3 sitting inside a box taller than their own
+// content and reading as a slab of dead space under the Next button.
 
 function parsePositiveNumber(raw: string): number | null {
   const n = Number(raw);
@@ -110,7 +120,10 @@ function LabelSlot({ label }: { label?: string }) {
 }
 
 // A compact, inline operand for a formula row -- not a full labeled field,
-// just a narrow box with its ₦/%/$ adornment tight against it.
+// just a box with its ₦/%/$ adornment tight against it. Sized and
+// contrasted to read as the main thing on the screen: a heavier border, a
+// larger value, and a bold weight, since this is what the user is actually
+// here to type into.
 function FormulaInput({
   label,
   value,
@@ -129,12 +142,14 @@ function FormulaInput({
   autoFocus?: boolean;
 }) {
   return (
-    <div className="flex shrink-0 flex-col items-center gap-1">
+    <div className="flex shrink-0 flex-col items-center gap-1.5">
       <LabelSlot label={label} />
-      <InputGroup className="h-11 w-28 rounded-xl">
+      <InputGroup className="h-14 w-32 rounded-xl border-2 border-foreground/15 bg-background shadow-sm has-[[data-slot=input-group-control]:focus-visible]:border-primary">
         {prefix ? (
           <InputGroupAddon>
-            <InputGroupText className="text-sm font-semibold">{prefix}</InputGroupText>
+            <InputGroupText className="text-base font-semibold text-foreground/60">
+              {prefix}
+            </InputGroupText>
           </InputGroupAddon>
         ) : null}
         <InputGroupInput
@@ -144,11 +159,13 @@ function FormulaInput({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
-          className="text-left text-lg font-semibold"
+          className="text-left text-xl font-bold"
         />
         {suffix ? (
           <InputGroupAddon align="inline-end">
-            <InputGroupText className="text-sm font-semibold">{suffix}</InputGroupText>
+            <InputGroupText className="text-base font-semibold text-foreground/60">
+              {suffix}
+            </InputGroupText>
           </InputGroupAddon>
         ) : null}
       </InputGroup>
@@ -160,34 +177,35 @@ function FormulaInput({
 // reused inside the margin formula).
 function ValueChip({ label, children }: { label?: string; children: React.ReactNode }) {
   return (
-    <div className="flex shrink-0 flex-col items-center gap-1">
+    <div className="flex shrink-0 flex-col items-center gap-1.5">
       <LabelSlot label={label} />
-      <span className="inline-flex h-11 items-center rounded-xl bg-secondary/60 px-3 text-lg font-semibold text-foreground/80">
+      <span className="inline-flex h-14 items-center rounded-xl bg-secondary/70 px-4 text-xl font-bold text-foreground/90">
         {children}
       </span>
     </div>
   );
 }
 
-// The computed answer at the end of a formula row -- plain text, not a
-// chip, so it reads as the live result of the equation rather than
-// another static value like ValueChip's carried-over operands.
+// The computed answer at the end of a formula row -- a solid, high-contrast
+// pill (not a bare chip like ValueChip's carried-over operands) so it reads
+// unmistakably as the live result of the equation, the one number in the
+// row that's actually the point.
 function ResultChip({ label, children }: { label?: string; children: React.ReactNode }) {
   return (
-    <div className="flex shrink-0 flex-col items-center gap-1">
+    <div className="flex shrink-0 flex-col items-center gap-1.5">
       <LabelSlot label={label} />
-      <span className="inline-flex h-11 items-center text-lg font-bold text-foreground">
+      <output className="inline-flex h-14 items-center rounded-xl bg-primary px-4 text-2xl font-extrabold text-primary-foreground shadow-sm">
         {children}
-      </span>
+      </output>
     </div>
   );
 }
 
 function Op({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex shrink-0 flex-col items-center gap-1">
+    <div className="flex shrink-0 flex-col items-center gap-1.5">
       <LabelSlot />
-      <span className="flex h-11 items-center text-lg font-medium text-muted-foreground/60">
+      <span className="flex h-14 items-center text-xl font-semibold text-foreground/70">
         {children}
       </span>
     </div>
@@ -196,41 +214,159 @@ function Op({ children }: { children: React.ReactNode }) {
 
 function FormulaLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex shrink-0 flex-col items-center gap-1">
+    <div className="flex shrink-0 flex-col items-center gap-1.5">
       <LabelSlot />
-      <span className="flex h-11 items-center text-sm font-semibold text-muted-foreground">
+      <span className="flex h-14 items-center text-base font-semibold text-foreground/80">
         {children}
       </span>
     </div>
   );
 }
 
-// Small, subtle per-field notes below a formula row -- not a sentence
-// under every box, just one quiet line per term.
+// Small, subtle per-term notes below a formula row -- a definition list,
+// since that's literally what each one is: a term and what it means here.
 function Hints({ items }: { items: { term: string; text: string }[] }) {
   return (
-    <div className="flex flex-col gap-1">
+    <dl className="flex flex-col gap-1.5">
       {items.map(({ term, text }) => (
-        <p key={term} className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/70">{term}</span> — {text}
-        </p>
+        <div key={term} className="flex gap-1 text-xs text-muted-foreground">
+          <dt className="shrink-0 font-medium text-foreground/70">{term}</dt>
+          <dd>{text}</dd>
+        </div>
       ))}
+    </dl>
+  );
+}
+
+// A step's bottom action bar -- a slim, auxiliary footer, not another pair
+// of giant full-width pills. Back reads as a quiet, secondary way out;
+// the primary action is a normal-width pill on its own at the end, sized
+// like any other button in the app rather than stretched to fill the row.
+function StepFooter({
+  onBack,
+  backDisabled,
+  children,
+}: {
+  onBack?: () => void;
+  backDisabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <footer
+      className={cn(
+        'mt-1 flex items-center gap-2 border-t pt-4',
+        onBack ? 'justify-between' : 'justify-end'
+      )}
+    >
+      {onBack ? (
+        <Button
+          type="button"
+          onClick={onBack}
+          variant="ghost"
+          size="sm"
+          disabled={backDisabled}
+          className="text-muted-foreground"
+        >
+          <ChevronLeft />
+          Back
+        </Button>
+      ) : null}
+      {children}
+    </footer>
+  );
+}
+
+// One labeled number in the saved-quote summary below -- same label-above-
+// value shape as the live calculator's own formula rows, just without an
+// input to type into.
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+        {label}
+      </span>
+      <span className="text-lg font-bold text-foreground">{children}</span>
+    </div>
+  );
+}
+
+// What renders in place of the interactive stepper once this exact
+// calculatePricing call already has a saved price_quotes row (see
+// pricing-actions.ts's getPriceQuotesByUser) -- a read-only recap of what
+// was actually saved, not a blank calculator asking the user to redo work
+// they already finished in an earlier session.
+function SavedQuoteSummary({ quote }: { quote: SavedPriceQuote }) {
+  const comparison =
+    quote.marketPriceUsd !== null
+      ? quote.priceUsd < quote.marketPriceUsd
+        ? 'lower'
+        : 'not-lower'
+      : null;
+
+  return (
+    <div className="flex flex-col gap-5 px-5 py-6">
+      <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
+        <Stat label="Unit cost">
+          <NairaAmount>{formatNumber(quote.unitCost)}</NairaAmount>
+        </Stat>
+        <Stat label="Margin">{formatNumber(quote.profitMarginPct, 0)}%</Stat>
+        <Stat label="Selling price">
+          <NairaAmount>{formatNumber(quote.priceNgn)}</NairaAmount>
+        </Stat>
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+            Price (USD)
+          </span>
+          <output className="inline-flex h-10 items-center rounded-xl bg-primary px-3 text-xl font-extrabold text-primary-foreground shadow-sm">
+            ${formatNumber(quote.priceUsd)}
+          </output>
+        </div>
+      </div>
+
+      {quote.marketPriceUsd !== null ? (
+        <span
+          className={cn(
+            'flex items-center gap-1.5 text-sm',
+            comparison === 'lower' ? 'text-primary' : 'text-destructive'
+          )}
+        >
+          {comparison === 'lower' ? (
+            <CheckCircle2 className="size-4 mb-1 shrink-0" />
+          ) : (
+            <TriangleAlert className="size-4 mb-1 shrink-0" />
+          )}
+          Market price found: ${formatNumber(quote.marketPriceUsd)}.{' '}
+          {comparison === 'lower'
+            ? "You're priced lower, good position."
+            : 'Worth reconsidering your margin.'}
+        </span>
+      ) : null}
     </div>
   );
 }
 
 export function PricingCalculatorPanel({
+  toolCallId,
   product,
   bankRate,
   asOf,
   isFallback,
+  savedQuote,
   onSave,
   onToggle,
 }: {
+  // The calculatePricing tool call's own id (part.toolCallId in
+  // conversation-messages.tsx) -- sent along on Save so it can be linked
+  // back to this exact panel, and used to look up savedQuote below.
+  toolCallId: string;
   product: string | null;
   bankRate: number;
   asOf: string;
   isFallback: boolean;
+  // Set when this toolCallId already has a saved price_quotes row (see
+  // page.tsx/pricing-actions.ts) -- renders a read-only recap instead of
+  // the interactive stepper when present, see SavedQuoteSummary above.
+  savedQuote: SavedPriceQuote | null;
   // A plain, first-person chat message describing the finished
   // calculation -- the parent sends it as a real user message so Eva
   // responds to and records it normally, same shape as a suggestion chip
@@ -250,6 +386,12 @@ export function PricingCalculatorPanel({
   const [step, setStep] = useState(0);
   const [maxUnlocked, setMaxUnlocked] = useState(0);
 
+  // One ref per step's own content node, so the wrapper below can measure
+  // and match whichever one is actually active -- see the file-level
+  // comment above for why Embla's own tallest-slide sizing isn't enough.
+  const stepRefs = useRef<(HTMLFormElement | null)[]>([]);
+  const [contentHeight, setContentHeight] = useState<number | null>(null);
+
   useEffect(() => {
     if (!api) return;
     const onSelect = () => setStep(api.selectedScrollSnap());
@@ -258,6 +400,24 @@ export function PricingCalculatorPanel({
       api.off('select', onSelect);
     };
   }, [api]);
+
+  // useLayoutEffect, not useEffect -- sizing the wrapper before the browser
+  // paints avoids a one-frame flash at the old (or the tallest-slide
+  // default) height whenever the step changes. The observer itself then
+  // keeps tracking that same step's node for any size change within it
+  // (e.g. the market comparison banner on step 4 appearing/disappearing),
+  // not just the one measurement at switch time.
+  useLayoutEffect(() => {
+    const node = stepRefs.current[step];
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    setContentHeight(node.scrollHeight);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setContentHeight((entry.target as HTMLElement).scrollHeight);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [step]);
 
   const totalCostNum = parsePositiveNumber(totalCost);
   const totalQuantityNum = parsePositiveNumber(totalQuantity);
@@ -337,6 +497,7 @@ export function PricingCalculatorPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          toolCallId,
           product,
           totalCost: totalCostNum,
           totalQuantity: totalQuantityNum,
@@ -375,302 +536,359 @@ export function PricingCalculatorPanel({
   }
 
   return (
-    <div className="mx-1 mt-4 not-prose mb-3 overflow-hidden rounded-2xl bg-card shadow-lg ring-1 ring-foreground/10">
-      <div className="flex items-center gap-2 border-b bg-secondary/40 px-5 py-3.5">
-        <Calculator className="size-4 shrink-0 text-primary" />
-        <span className="text-sm font-semibold">
-          Price {product ? `your ${product}` : 'your product'}
+    <section
+      aria-label={`Pricing calculator for ${product ?? 'your product'}`}
+      className="mx-1 mt-4 mb-3 max-h-max! not-prose overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10"
+    >
+      <header className="flex items-center gap-2.5 border-b bg-secondary/40 px-5 py-4">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Calculator className="size-4" />
         </span>
-      </div>
+        <h3 className="text-sm font-semibold">
+          Price {product ? `your ${product}` : 'your product'}
+        </h3>
+        {savedQuote ? (
+          <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+            <Check className="size-3" />
+            Saved
+          </span>
+        ) : null}
+      </header>
 
-      <div className="flex items-start px-5 pt-5">
-        {STEPS.flatMap((label, i) => {
-          const unlocked = i <= maxUnlocked;
-          const active = i === step;
-          const dot = (
-            <button
-              key={`dot-${label}`}
-              type="button"
-              disabled={!unlocked}
-              onClick={() => goTo(i)}
-              className="group flex shrink-0 flex-col items-center gap-1.5 disabled:cursor-not-allowed"
-            >
-              <span
-                className={cn(
-                  'flex size-7 items-center justify-center rounded-full text-xs font-semibold transition-colors',
-                  active
-                    ? 'bg-primary text-primary-foreground'
-                    : unlocked
-                      ? 'bg-secondary text-foreground group-hover:bg-secondary/70'
-                      : 'bg-secondary/50 text-muted-foreground/50'
-                )}
-              >
-                {i < maxUnlocked ? <Check className="size-3.5" /> : i + 1}
-              </span>
-              <span
-                className={cn(
-                  'text-[10px] font-medium whitespace-nowrap',
-                  active ? 'text-foreground' : 'text-muted-foreground/70'
-                )}
-              >
-                {label}
-              </span>
-            </button>
-          );
-          if (i === 0) return [dot];
-          const connector = (
-            <div
-              key={`line-${label}`}
-              className={cn(
-                'mt-3.5 h-0.5 flex-1 rounded-full transition-colors',
-                i <= maxUnlocked ? 'bg-primary' : 'bg-border'
-              )}
-            />
-          );
-          return [connector, dot];
-        })}
-      </div>
-
-      <Carousel setApi={setApi} opts={{ watchDrag: false }} className="px-5 pt-5 pb-5">
-        <CarouselContent>
-          {/* Step 1: Unit Cost */}
-          <CarouselItem>
-            <div className="flex flex-col gap-5 pt-2">
-              <div className="flex flex-wrap items-start gap-x-2.5 gap-y-3">
-                <FormulaLabel>Unit Cost</FormulaLabel>
-                <Op>=</Op>
-                <FormulaInput
-                  label="Total cost"
-                  value={totalCost}
-                  onChange={setTotalCost}
-                  prefix={<NairaSign />}
-                  placeholder="0"
-                  autoFocus
-                />
-                <Op>÷</Op>
-                <FormulaInput
-                  label="Quantity"
-                  value={totalQuantity}
-                  onChange={setTotalQuantity}
-                  placeholder="0"
-                />
-                <Op>=</Op>
-                <ResultChip label="Unit cost">
-                  {unitCost !== null ? (
-                    <NairaAmount>{formatNumber(unitCost)}</NairaAmount>
-                  ) : (
-                    '—'
-                  )}
-                </ResultChip>
-              </div>
-              <Hints
-                items={[
-                  {
-                    term: 'Total cost',
-                    text: 'all your costs for this batch — goods, packaging, transport, everything.',
-                  },
-                  {
-                    term: 'Quantity',
-                    text: "how many units you're pricing — bottles, packs, kg, tons, whatever you sell in.",
-                  },
-                ]}
-              />
-              <Button onClick={advance} disabled={!step1Valid} className="w-full">
-                Next
-                <ChevronRight />
-              </Button>
-            </div>
-          </CarouselItem>
-
-          {/* Step 2: Add profit margin */}
-          <CarouselItem>
-            <div className="flex flex-col gap-5">
-              <div className="flex flex-wrap items-start gap-x-2.5 gap-y-3">
-                <FormulaLabel>Selling Price</FormulaLabel>
-                <Op>=</Op>
-                <ValueChip label="Unit cost">
-                  <NairaAmount>{unitCost !== null ? formatNumber(unitCost) : '—'}</NairaAmount>
-                </ValueChip>
-                <Op>+</Op>
-                <Op>(</Op>
-                <ValueChip label="Unit cost">
-                  <NairaAmount>{unitCost !== null ? formatNumber(unitCost) : '—'}</NairaAmount>
-                </ValueChip>
-                <Op>×</Op>
-                <FormulaInput
-                  label="Margin %"
-                  value={profitMargin}
-                  onChange={setProfitMargin}
-                  suffix="%"
-                  placeholder="0"
-                />
-                <Op>)</Op>
-                <Op>=</Op>
-                <ResultChip label="Selling price">
-                  {sellingPriceNaira !== null ? (
-                    <NairaAmount>{formatNumber(sellingPriceNaira)}</NairaAmount>
-                  ) : (
-                    '—'
-                  )}
-                </ResultChip>
-              </div>
-              <Hints
-                items={[
-                  {
-                    term: 'Profit margin',
-                    text: 'your call — the material suggests anywhere from 10% to 100%+, depending on your product and what the market can bear.',
-                  },
-                ]}
-              />
-              <div className="flex gap-2">
-                <Button onClick={back} variant="outline" className="flex-1">
-                  <ChevronLeft />
-                  Back
-                </Button>
-                <Button onClick={advance} disabled={!step2Valid} className="flex-1">
-                  Next
-                  <ChevronRight />
-                </Button>
-              </div>
-            </div>
-          </CarouselItem>
-
-          {/* Step 3: Convert to dollars */}
-          <CarouselItem>
-            <div className="flex flex-col gap-5">
-              <div className="flex flex-wrap items-start gap-x-2.5 gap-y-3">
-                <FormulaLabel>Price in USD</FormulaLabel>
-                <Op>=</Op>
-                <ValueChip label="Selling price">
-                  <NairaAmount>
-                    {sellingPriceNaira !== null ? formatNumber(sellingPriceNaira) : '—'}
-                  </NairaAmount>
-                </ValueChip>
-                <Op>÷</Op>
-                <FormulaInput
-                  label="Bank rate"
-                  value={bankRateInput}
-                  onChange={setBankRateInput}
-                  prefix={<NairaSign />}
-                />
-                <Op>=</Op>
-                <ResultChip label="Price (USD)">
-                  {priceUsd !== null ? <>${formatNumber(priceUsd)}</> : '—'}
-                </ResultChip>
-              </div>
-              <Hints
-                items={[
-                  {
-                    term: 'Bank rate',
-                    text: isFallback
-                      ? `live rate lookup failed as of ${asOf} — this is a rough estimate, confirm your actual bank rate before relying on it.`
-                      : `today's bank rate as of ${asOf}, prefilled — edit it if your bank quotes you something different.`,
-                  },
-                ]}
-              />
-              <div className="flex gap-2">
-                <Button onClick={back} variant="outline" className="flex-1">
-                  <ChevronLeft />
-                  Back
-                </Button>
-                <Button onClick={advance} disabled={!step3Valid} className="flex-1">
-                  Next
-                  <ChevronRight />
-                </Button>
-              </div>
-            </div>
-          </CarouselItem>
-
-          {/* Step 4: Market check + Save */}
-          <CarouselItem>
-            <div className="flex flex-col gap-5">
-              <div className="flex flex-wrap items-start gap-x-2.5 gap-y-3">
-                <FormulaLabel>Your price</FormulaLabel>
-                <Op>=</Op>
-                <ResultChip>
-                  {priceUsd !== null ? <>${formatNumber(priceUsd)}</> : '—'}
-                </ResultChip>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <span className="text-xs text-muted-foreground">
-                  Optional: check what it&rsquo;s actually selling for, then compare
-                  below.
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {MARKET_SITES.map(({ site, label }) => (
-                    <a
-                      key={site}
-                      href={marketSearchUrl(site, product)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground/90 hover:bg-muted"
+      {savedQuote ? (
+        <SavedQuoteSummary quote={savedQuote} />
+      ) : (
+        <>
+          <nav aria-label="Calculator steps" className="px-5 pt-6 pb-1">
+            <ol className="flex items-start">
+              {STEPS.flatMap((label, i) => {
+                const unlocked = i <= maxUnlocked;
+                const active = i === step;
+                const dotItem = (
+                  <li
+                    key={`dot-${label}`}
+                    className="flex shrink-0 flex-col items-center gap-1.5"
+                  >
+                    <button
+                      type="button"
+                      disabled={!unlocked}
+                      onClick={() => goTo(i)}
+                      className="group flex flex-col items-center gap-1.5 disabled:cursor-not-allowed"
                     >
-                      {label}
-                      <ExternalLink className="size-3" />
-                    </a>
-                  ))}
-                </div>
-              </div>
+                      <span
+                        className={cn(
+                          'flex size-6 items-center justify-center rounded-full text-xs font-semibold transition-colors',
+                          active
+                            ? 'bg-primary text-primary-foreground'
+                            : unlocked
+                              ? 'bg-secondary text-foreground group-hover:bg-secondary/70'
+                              : 'bg-secondary/50 text-muted-foreground/50'
+                        )}
+                      >
+                        {i < maxUnlocked ? <Check className="size-3" /> : i + 1}
+                      </span>
+                      <span
+                        className={cn(
+                          'text-[10px] font-medium whitespace-nowrap',
+                          active ? 'text-foreground' : 'text-muted-foreground/70'
+                        )}
+                      >
+                        {label}
+                      </span>
+                    </button>
+                  </li>
+                );
+                if (i === 0) return [dotItem];
+                const connectorItem = (
+                  <li
+                    key={`line-${label}`}
+                    aria-hidden="true"
+                    className={cn(
+                      'mt-3 h-0.5 flex-1 rounded-full transition-colors',
+                      i <= maxUnlocked ? 'bg-primary' : 'bg-border'
+                    )}
+                  />
+                );
+                return [connectorItem, dotItem];
+              })}
+            </ol>
+          </nav>
 
-              <div className="flex flex-wrap items-start gap-x-2.5 gap-y-3">
-                <FormulaLabel>Market price</FormulaLabel>
-                <Op>=</Op>
-                <FormulaInput
-                  value={marketPrice}
-                  onChange={setMarketPrice}
-                  prefix="$"
-                  placeholder="0"
-                />
-              </div>
+          <div
+            className="overflow-hidden transition-[height] duration-300 ease-out"
+            style={contentHeight !== null ? { height: contentHeight } : undefined}
+          >
+            <Carousel setApi={setApi} opts={{ watchDrag: false }} className="px-5">
+              <CarouselContent>
+                {/* Step 1: Unit Cost */}
+                <CarouselItem>
+                  <form
+                    ref={(el) => {
+                      stepRefs.current[0] = el;
+                    }}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (step1Valid) advance();
+                    }}
+                    className="flex flex-col gap-6 pt-8 pb-5"
+                  >
+                    <div className="flex flex-wrap items-start gap-x-3 gap-y-4">
+                      <FormulaLabel>Unit Cost</FormulaLabel>
+                      <Op>=</Op>
+                      <FormulaInput
+                        label="Total cost"
+                        value={totalCost}
+                        onChange={setTotalCost}
+                        prefix={<NairaSign />}
+                        placeholder="0"
+                        autoFocus
+                      />
+                      <Op>÷</Op>
+                      <FormulaInput
+                        label="Quantity"
+                        value={totalQuantity}
+                        onChange={setTotalQuantity}
+                        placeholder="0"
+                      />
+                      <Op>=</Op>
+                      <ResultChip label="Unit cost">
+                        {unitCost !== null ? (
+                          <NairaAmount>{formatNumber(unitCost)}</NairaAmount>
+                        ) : (
+                          '—'
+                        )}
+                      </ResultChip>
+                    </div>
+                    <Hints
+                      items={[
+                        {
+                          term: 'Total cost',
+                          text: 'is all your costs for this batch: goods, packaging, transport, everything.',
+                        },
+                        {
+                          term: 'Quantity',
+                          text: "is how many units you're pricing: bottles, packs, kg, tons, whatever you sell in.",
+                        },
+                      ]}
+                    />
+                    <StepFooter>
+                      <Button type="submit" disabled={!step1Valid}>
+                        Next
+                        <ChevronRight />
+                      </Button>
+                    </StepFooter>
+                  </form>
+                </CarouselItem>
 
-              {marketComparison === 'lower' ? (
-                <p className="flex items-center gap-1.5 text-sm text-primary">
-                  <CheckCircle2 className="size-4 shrink-0" />
-                  You&rsquo;re priced lower than what you found — good position.
-                </p>
-              ) : marketComparison === 'not-lower' ? (
-                <p className="flex items-center gap-1.5 text-sm text-destructive">
-                  <TriangleAlert className="size-4 shrink-0" />
-                  Your price is at or above what you found — worth reconsidering your
-                  margin.
-                </p>
-              ) : null}
+                {/* Step 2: Add profit margin */}
+                <CarouselItem>
+                  <form
+                    ref={(el) => {
+                      stepRefs.current[1] = el;
+                    }}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (step2Valid) advance();
+                    }}
+                    className="flex flex-col gap-6 pt-8 pb-5"
+                  >
+                    <div className="flex flex-wrap items-start gap-x-3 gap-y-4">
+                      <FormulaLabel>Selling Price</FormulaLabel>
+                      <Op>=</Op>
+                      <ValueChip label="Unit cost">
+                        <NairaAmount>
+                          {unitCost !== null ? formatNumber(unitCost) : '—'}
+                        </NairaAmount>
+                      </ValueChip>
+                      <Op>+</Op>
+                      <Op>(</Op>
+                      <ValueChip label="Unit cost">
+                        <NairaAmount>
+                          {unitCost !== null ? formatNumber(unitCost) : '—'}
+                        </NairaAmount>
+                      </ValueChip>
+                      <Op>×</Op>
+                      <FormulaInput
+                        label="Profit Margin %"
+                        value={profitMargin}
+                        onChange={setProfitMargin}
+                        suffix="%"
+                        placeholder="0"
+                      />
+                      <Op>)</Op>
+                      <Op>=</Op>
+                      <ResultChip label="Selling price">
+                        {sellingPriceNaira !== null ? (
+                          <NairaAmount>{formatNumber(sellingPriceNaira)}</NairaAmount>
+                        ) : (
+                          '—'
+                        )}
+                      </ResultChip>
+                    </div>
+                    <Hints
+                      items={[
+                        {
+                          term: 'Profit margin',
+                          text: 'is how much percentage profit you want to add on top of what each unit cost you. Your profit margin should be between 10% and 100% or more, depending on your product and how much buyers are willing to pay.',
+                        },
+                      ]}
+                    />
+                    <StepFooter onBack={back}>
+                      <Button type="submit" disabled={!step2Valid}>
+                        Next
+                        <ChevronRight />
+                      </Button>
+                    </StepFooter>
+                  </form>
+                </CarouselItem>
 
-              <div className="flex gap-2">
-                <Button
-                  onClick={back}
-                  variant="outline"
-                  className="flex-1"
-                  disabled={saved || saving}
-                >
-                  <ChevronLeft />
-                  Back
-                </Button>
-                <Button
-                  onClick={handleSave}
-                  disabled={saved || saving}
-                  className="flex-1"
-                >
-                  {saved ? (
-                    <>
-                      <Check />
-                      Saved
-                    </>
-                  ) : saving ? (
-                    <>
-                      <Spinner />
-                      Saving
-                    </>
-                  ) : (
-                    'Save to my deal'
-                  )}
-                </Button>
-              </div>
-            </div>
-          </CarouselItem>
-        </CarouselContent>
-      </Carousel>
-    </div>
+                {/* Step 3: Convert to dollars */}
+                <CarouselItem>
+                  <form
+                    ref={(el) => {
+                      stepRefs.current[2] = el;
+                    }}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (step3Valid) advance();
+                    }}
+                    className="flex flex-col gap-6 pt-8 pb-5"
+                  >
+                    <div className="flex flex-wrap items-start gap-x-3 gap-y-4">
+                      <FormulaLabel>Price in USD</FormulaLabel>
+                      <Op>=</Op>
+                      <ValueChip label="Selling price">
+                        <NairaAmount>
+                          {sellingPriceNaira !== null
+                            ? formatNumber(sellingPriceNaira)
+                            : '—'}
+                        </NairaAmount>
+                      </ValueChip>
+                      <Op>÷</Op>
+                      <FormulaInput
+                        label="Bank rate"
+                        value={bankRateInput}
+                        onChange={setBankRateInput}
+                        prefix={<NairaSign />}
+                      />
+                      <Op>=</Op>
+                      <ResultChip label="Price (USD)">
+                        {priceUsd !== null ? <>${formatNumber(priceUsd)}</> : '—'}
+                      </ResultChip>
+                    </div>
+                    {isFallback ? (
+                      <p className="flex items-center gap-1.5 text-xs text-amber-700">
+                        <Info className="size-3.5 shrink-0 text-amber-500" />
+                        Confirm the actual bank rate before relying on it.
+                      </p>
+                    ) : (
+                      <Hints
+                        items={[
+                          {
+                            term: 'Bank rate',
+                            text: `is today's bank rate as of ${asOf}, already filled in for you. Edit it if your bank quotes you something different.`,
+                          },
+                        ]}
+                      />
+                    )}
+                    <StepFooter onBack={back}>
+                      <Button type="submit" disabled={!step3Valid}>
+                        Next
+                        <ChevronRight />
+                      </Button>
+                    </StepFooter>
+                  </form>
+                </CarouselItem>
+
+                {/* Step 4: Market check + Save */}
+                <CarouselItem>
+                  <form
+                    ref={(el) => {
+                      stepRefs.current[3] = el;
+                    }}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSave();
+                    }}
+                    className="flex flex-col gap-6 pt-8 pb-5"
+                  >
+                    <div className="flex flex-wrap items-start gap-x-3 gap-y-4">
+                      <FormulaLabel>Your price per unit</FormulaLabel>
+                      <Op>=</Op>
+                      <ResultChip>
+                        {priceUsd !== null ? <>${formatNumber(priceUsd)}</> : '—'}
+                      </ResultChip>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Optional: check what it&rsquo;s actually selling for, then compare
+                        below.
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {MARKET_SITES.map(({ site, label }) => (
+                          <a
+                            key={site}
+                            href={marketSearchUrl(site, product)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground/90 hover:bg-muted"
+                          >
+                            {label}
+                            <ExternalLink className="size-3" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-start gap-x-3 gap-y-4">
+                      <FormulaLabel>Market price</FormulaLabel>
+                      <Op>=</Op>
+                      <FormulaInput
+                        value={marketPrice}
+                        onChange={setMarketPrice}
+                        prefix="$"
+                        placeholder="0"
+                      />
+                    </div>
+
+                    {marketComparison === 'lower' ? (
+                      <p className="flex items-center gap-1.5 text-sm text-primary">
+                        <CheckCircle2 className="size-4 shrink-0" />
+                        You&rsquo;re priced lower than what you found. Good position.
+                      </p>
+                    ) : marketComparison === 'not-lower' ? (
+                      <p className="flex items-center gap-1.5 text-sm text-destructive">
+                        <TriangleAlert className="size-4 shrink-0" />
+                        Your price is at or above what you found. Worth reconsidering your
+                        margin.
+                      </p>
+                    ) : null}
+
+                    <StepFooter onBack={back} backDisabled={saved || saving}>
+                      <Button type="submit" disabled={saved || saving}>
+                        {saved ? (
+                          <>
+                            <Check />
+                            Saved
+                          </>
+                        ) : saving ? (
+                          <>
+                            <Spinner />
+                            Saving
+                          </>
+                        ) : (
+                          'Save to my deal'
+                        )}
+                      </Button>
+                    </StepFooter>
+                  </form>
+                </CarouselItem>
+              </CarouselContent>
+            </Carousel>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

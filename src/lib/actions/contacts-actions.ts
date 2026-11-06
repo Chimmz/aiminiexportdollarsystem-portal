@@ -3,7 +3,6 @@ import {
   ALL_CONTACT_TYPES,
   FETCH_CAP,
   matchesAnyLocation,
-  splitVocabularyTerms,
   toIntlBuyerCard,
   toLocalSupplierCard,
   toLogisticsCard,
@@ -65,56 +64,14 @@ export async function getKnownCountries(): Promise<string[]> {
     .limit(FETCH_CAP);
   if (error) throw new Error(`known countries: ${error.message}`);
 
-  const countries = [...new Set((data ?? []).map((row) => row.country).filter((c): c is string => Boolean(c)))];
+  const countries = [
+    ...new Set(
+      (data ?? []).map((row) => row.country).filter((c): c is string => Boolean(c))
+    ),
+  ];
   countries.sort();
   cachedCountries = countries;
   return countries;
-}
-
-// Cached for the process's lifetime, same reason as cachedCountries above
-// -- directory content only changes on a manual re-ingest. Used only by
-// search-contacts-tool.ts's rare "nothing matched even after the full
-// relaxation cascade, try regrounding the query against real vocabulary"
-// fallback, not the main tool schema -- this is free-text product/service
-// wording, not a small closed set like countries, so it would be too
-// noisy to put in front of the model on every single message the way
-// getKnownCountries is.
-let cachedProductVocabulary: string[] | null = null;
-
-// Capped defensively so this stays bounded in prompt size even if the
-// directories grow substantially later -- this is deduped distinct terms,
-// not raw rows, so the cap is generous relative to today's ~760 combined
-// rows across the two directories it reads from.
-const VOCABULARY_CAP = 3000;
-
-// The real, literal product/service wording stored in the two
-// sourcing-side directories -- local suppliers and logistics/packaging.
-// international_buyer_contacts.products describes buyer demand instead,
-// a different axis that isn't useful grounding for "what's actually
-// sourceable" questions.
-export async function getKnownProductVocabulary(): Promise<string[]> {
-  if (cachedProductVocabulary) return cachedProductVocabulary;
-
-  const supabase = createServiceClient();
-  const [suppliers, logistics] = await Promise.all([
-    supabase.from('local_supplier_contacts').select('products').limit(FETCH_CAP),
-    supabase.from('shipping_logistics_contacts').select('service, offer').limit(FETCH_CAP),
-  ]);
-  if (suppliers.error) throw new Error(`product vocabulary (suppliers): ${suppliers.error.message}`);
-  if (logistics.error) throw new Error(`product vocabulary (logistics): ${logistics.error.message}`);
-
-  const terms = new Set<string>();
-  for (const row of suppliers.data ?? []) {
-    splitVocabularyTerms(row.products).forEach((t) => terms.add(t));
-  }
-  for (const row of logistics.data ?? []) {
-    splitVocabularyTerms(row.service).forEach((t) => terms.add(t));
-    splitVocabularyTerms(row.offer).forEach((t) => terms.add(t));
-  }
-
-  const vocabulary = [...terms].sort((a, b) => a.localeCompare(b)).slice(0, VOCABULARY_CAP);
-  cachedProductVocabulary = vocabulary;
-  return vocabulary;
 }
 
 async function searchIntlBuyers(
@@ -128,7 +85,10 @@ async function searchIntlBuyers(
       'part, country, buyer_type, name_or_company, contact_person, job_title, place_or_address, phones, emails, website, instagram, products, notes'
     );
   if (query.trim()) {
-    q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
+    q = q.textSearch('search_tsv', query.trim(), {
+      type: 'websearch',
+      config: 'english',
+    });
   }
 
   const { data, error } = await q.limit(FETCH_CAP);
@@ -150,7 +110,10 @@ async function searchLocalSuppliers(
       'supplier_group, supplier, city, state, products, phone_1, phone_2, email, social, price_listed, price_month, minimum_order, delivery_note, last_listed'
     );
   if (query.trim()) {
-    q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
+    q = q.textSearch('search_tsv', query.trim(), {
+      type: 'websearch',
+      config: 'english',
+    });
   }
 
   const { data, error } = await q.limit(FETCH_CAP);
@@ -168,9 +131,14 @@ async function searchLogistics(
   const supabase = createServiceClient();
   let q = supabase
     .from('shipping_logistics_contacts')
-    .select('service, name, state, place, offer, price_noted, month_posted, phones, email');
+    .select(
+      'service, name, state, place, offer, price_noted, month_posted, phones, email'
+    );
   if (query.trim()) {
-    q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
+    q = q.textSearch('search_tsv', query.trim(), {
+      type: 'websearch',
+      config: 'english',
+    });
   }
 
   const { data, error } = await q.limit(FETCH_CAP);
@@ -188,9 +156,14 @@ async function searchDocumentation(
   const supabase = createServiceClient();
   let q = supabase
     .from('documentation_contacts')
-    .select('service, name, state, place, offer, price_noted, month_posted, phones, email');
+    .select(
+      'service, name, state, place, offer, price_noted, month_posted, phones, email'
+    );
   if (query.trim()) {
-    q = q.textSearch('search_tsv', query.trim(), { type: 'websearch', config: 'english' });
+    q = q.textSearch('search_tsv', query.trim(), {
+      type: 'websearch',
+      config: 'english',
+    });
   }
 
   const { data, error } = await q.limit(FETCH_CAP);
@@ -212,12 +185,15 @@ async function runSearch(
 ): Promise<ContactCard[]> {
   const searchesByType: Record<ContactType, () => Promise<ContactCard[]>> = {
     international_buyers_of_food_products: () => searchIntlBuyers(query, locations),
-    local_raw_processed_food_product_suppliers: () => searchLocalSuppliers(query, locations),
+    local_raw_processed_food_product_suppliers: () =>
+      searchLocalSuppliers(query, locations),
     local_packaging_shipping_logistics: () => searchLogistics(query, locations),
     local_documentation_regulatory_contacts: () => searchDocumentation(query, locations),
   };
 
-  const resultsPerType = await Promise.all(contactTypes.map((type) => searchesByType[type]()));
+  const resultsPerType = await Promise.all(
+    contactTypes.map((type) => searchesByType[type]())
+  );
   return resultsPerType.flat();
 }
 
@@ -259,7 +235,11 @@ export async function searchContacts({
   if (hasLocations) {
     const withoutLocation = await runSearch(query, null, contactTypes);
     if (withoutLocation.length > 0) {
-      return { contacts: withoutLocation, relaxedLocation: true, relaxedContactTypes: false };
+      return {
+        contacts: withoutLocation,
+        relaxedLocation: true,
+        relaxedContactTypes: false,
+      };
     }
   }
 
@@ -267,7 +247,11 @@ export async function searchContacts({
   if (!alreadySearchedEveryType) {
     const everyType = await runSearch(query, null, ALL_CONTACT_TYPES);
     if (everyType.length > 0) {
-      return { contacts: everyType, relaxedLocation: hasLocations, relaxedContactTypes: true };
+      return {
+        contacts: everyType,
+        relaxedLocation: hasLocations,
+        relaxedContactTypes: true,
+      };
     }
   }
 

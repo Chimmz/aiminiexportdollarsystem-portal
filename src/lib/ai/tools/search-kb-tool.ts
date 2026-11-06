@@ -14,42 +14,35 @@ export function createSearchKbTool(messages: ModelMessage[]) {
   void messages;
 
   return tool({
-    description: `Look up information from the export-business training knowledge
-      base to help answer the user's question — sourcing, pricing, buyers,
-      shipping, documentation, processing or packaging a specific product,
-      collecting/receiving payment, regulations, or any other export-related
-      topic. Call this before answering any export question so the answer is
-      grounded in real training material instead of guessed, even for a
-      question that sounds like common knowledge (e.g. "what are my payment
-      options") -- the material has specific, curated guidance on exactly
-      that kind of topic that general knowledge won't reproduce.`,
+    description: `Look up information from the export-business training
+      knowledge base to answer the user's question -- sourcing, pricing,
+      buyers, shipping, documentation, processing, packaging, payment,
+      regulations, or any export-related topic. Call this before
+      answering any export question, even one that sounds like common
+      knowledge (e.g. "what are my payment options") -- the material has
+      specific, curated guidance general knowledge won't reproduce.`,
     inputSchema: z.object({
       query: z.string().describe(
-        `A clear, self-contained restatement of what the user wants to know —
-          written so it makes sense without the rest of the conversation. Used
-          for semantic search, which understands paraphrase and intent rather
-          than exact wording.`
+        `A clear, self-contained restatement of what the user wants to
+          know, making sense without the rest of the conversation. Used
+          for semantic search (paraphrase/intent, not exact wording).`
       ),
       keyword: z
         .string()
         .nullable()
         .describe(
-          `Short, space-separated literal terms likely to appear verbatim in the
-          training material (product names, numbers, exact terminology) — used
-          for keyword search, which only rewards exact word overlap. Return
-          null if the question is abstract/conversational and literal keyword
-          matching wouldn't help.`
+          `Short, space-separated literal terms likely to appear verbatim
+          in the material (product names, numbers, exact terminology),
+          for keyword search. Include every concrete term the question
+          turns on -- naming two products, or a product plus a topic,
+          needs both. Null if too abstract for literal matching to help.`
         ),
       scope: z.enum(['specific', 'medium', 'broad']).describe(
-        `How wide a net this question needs. "specific" for something
-          narrow and concrete (one product, one step, one number — e.g.
-          "what's the bank rate" or "how do I seal a crayfish pack").
-          "broad" for an open-ended guide/process question spanning many
-          subtopics (e.g. "guide me through labeling and branding
-          generally", "how do I start exporting"). "medium" for anything
-          in between. Pick the smallest scope that still covers the
-          question — a wider scope returns more chunks, which costs more
-          context and reading time, not just more thoroughness.`
+        `How wide a net this needs. "specific" for one narrow, concrete
+          thing (a product, a step, a number). "broad" for an open-ended
+          guide/process question spanning many subtopics. "medium" in
+          between. Pick the smallest scope that covers the question --
+          wider returns more chunks, costing more context.`
       ),
     }),
     execute: async ({ query, keyword, scope }) => {
