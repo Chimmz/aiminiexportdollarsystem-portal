@@ -35,12 +35,21 @@ export default async function UpgradeCallbackPage({
 }) {
   const params = await searchParams;
 
+  // Checked first, before either gateway branch below: Flutterwave's own
+  // cancel redirect sends only tx_ref + status=cancelled, no
+  // transaction_id (nothing to verify -- the checkout never completed),
+  // so the transaction_id-based branch below never even matched this
+  // case, falling through to the generic "not found" copy instead of a
+  // dedicated cancelled one. Trusting this query param for display only
+  // is safe: this branch never calls either verify function, so nothing
+  // about what actually gets credited depends on it -- a manually
+  // crafted ?status=cancelled just shows this copy, same as it would for
+  // a real cancel.
   let result;
-  if (params.transaction_id && params.tx_ref) {
-    result =
-      params.status === 'cancelled'
-        ? ({ status: 'not_found' } as const)
-        : await verifyAndActivateFlutterwavePayment(params.tx_ref, params.transaction_id);
+  if (params.status === 'cancelled') {
+    result = { status: 'cancelled' } as const;
+  } else if (params.transaction_id && params.tx_ref) {
+    result = await verifyAndActivateFlutterwavePayment(params.tx_ref, params.transaction_id);
   } else {
     const reference = params.reference ?? params.trxref;
     result = reference ? await verifyAndActivatePayment(reference) : ({ status: 'not_found' } as const);
@@ -67,6 +76,11 @@ export default async function UpgradeCallbackPage({
       icon: <XCircleIcon className="size-10 text-destructive" strokeWidth={1.5} />,
       title: "Payment didn't go through",
       body: 'Nothing was charged to your access. You can try again from the Upgrade page.',
+    },
+    cancelled: {
+      icon: <XCircleIcon className="size-10 text-muted-foreground" strokeWidth={1.5} />,
+      title: 'Payment cancelled',
+      body: 'You cancelled that checkout. Nothing was charged -- you can try again anytime from the Upgrade page.',
     },
     not_found: {
       icon: <XCircleIcon className="size-10 text-destructive" strokeWidth={1.5} />,

@@ -376,11 +376,19 @@ export function MentorChatClient({
     const txRef = searchParams.get('tx_ref');
     const reference = searchParams.get('reference') ?? searchParams.get('trxref');
 
+    // Checked before the transaction_id branch below, not inside it --
+    // Flutterwave's own cancel redirect sends only tx_ref + status=
+    // cancelled, no transaction_id (nothing to verify, the checkout never
+    // completed), so that branch never matched this case: it fell through
+    // to the no-reference branch further down, which silently did nothing
+    // and left ?status=cancelled&tx_ref=... sitting in the URL.
+    if (searchParams.get('status') === 'cancelled') {
+      router.replace('/dashboard/mentor');
+      toast('Checkout cancelled. Nothing was charged.');
+      return;
+    }
+
     if (transactionId && txRef) {
-      if (searchParams.get('status') === 'cancelled') {
-        router.replace('/dashboard/mentor');
-        return;
-      }
       verifyAndActivateFlutterwavePayment(txRef, transactionId).then(handleVerifyResult);
       return;
     }
