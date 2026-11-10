@@ -1,4 +1,7 @@
 import { v2 as cloudinary } from 'cloudinary';
+import { generateText, Output } from 'ai';
+import { z } from 'zod';
+import { queryRewriteModel } from '@/lib/ai/models';
 import { embedChunks } from '@/lib/rag/embed';
 import {
   bm25Search,
@@ -11,6 +14,7 @@ import {
 } from '@/lib/rag/retrieval';
 import {
   deriveMediaFields,
+  findExactProductMatches,
   MEDIA_FOLDER_PATHS,
   selectDiverseTopMatches,
   type MediaFolder,
@@ -158,11 +162,88 @@ async function searchFolder(folder: MediaFolder, query: string): Promise<MediaIt
   return rerank(keywordResults, semanticResults, { limit: index.items.length });
 }
 
+const ProductMatchSchema = z.object({
+  matchedProductKeys: z
+    .array(z.string())
+    .describe(
+      `Which of the catalog's product keys this query is actually asking
+      about. Zero, one, or several -- never force a match just because it
+      shares a category with something in the catalog (e.g. "red oil"
+      means palm oil specifically, not every edible oil on the list).`
+    ),
+});
+
+// Resolves a product query against the real catalog of distinct products
+// this folder actually has photos of, using a cheap model instead of
+// text/embedding similarity. Needed for two things the fuzzy
+// BM25+semantic search (searchFolder, below) structurally can't do: tell
+// "same category, wrong product" apart (palm oil vs groundnut oil both
+// just tokenize to "oil", so both clear its relevance floor), and
+// resolve a regional/colloquial name that never appears in any filename
+// at all (e.g. "red oil" is Nigerian English for palm oil -- no amount
+// of filename-token matching finds that, but a general-purpose model
+// already knows it). Grounded against the real catalog, not a free-text
+// guess: the model only ever picks from the productKeys actually listed,
+// and any key it returns that isn't in that list is dropped before use.
+// Returns null (not []) on an actual call failure, so the caller can tell
+// "genuinely no match" apart from "couldn't check" and fall back to the
+// older fuzzy search only for the latter.
+async function matchProductWithLLM(
+  query: string,
+  items: MediaItem[]
+): Promise<MediaItem[] | null> {
+  const catalog = new Map<string, string>(); // productKey -> example label
+  for (const item of items) {
+    if (!catalog.has(item.productKey)) catalog.set(item.productKey, item.label);
+  }
+  if (catalog.size === 0) return [];
+
+  try {
+    const { output } = await generateText({
+      model: queryRewriteModel,
+      output: Output.object({ schema: ProductMatchSchema }),
+      prompt: `A user is asking an export mentor about a product, and we need
+to match their query against a real product-photo catalog.
+
+Query: "${query}"
+
+Catalog (product key -> example photo filename):
+${Array.from(catalog.entries())
+  .map(([key, label]) => `- ${key} -> ${label}`)
+  .join('\n')}
+
+Return the product key(s) this query is actually about. The query may use a
+regional or colloquial name that never appears in any filename (e.g. in
+Nigerian English, "red oil" means palm oil) -- use that knowledge. Don't
+return a key just because it shares a category with the query (e.g. "red
+oil" is not groundnut oil).`,
+    });
+
+    const matchedKeys = new Set(
+      output.matchedProductKeys.filter((k) => catalog.has(k))
+    );
+    return items.filter((item) => matchedKeys.has(item.productKey));
+  } catch (err) {
+    console.error('[mentor] matchProductWithLLM failed:', err);
+    return null;
+  }
+}
+
 // A specific product is in context -- show that product's own packaging,
 // regardless of packaging style. Capped small (not the whole folder):
 // several of this course's example products have 5-6 near-duplicate
 // shots, and nobody needs to see all of them to get the idea.
 export async function getMediaForProduct(product: string, cap = 5): Promise<MediaItem[]> {
+  const index = await getFolderIndex('Packaged Products');
+
+  const exactMatches = findExactProductMatches(index.items, product);
+  if (exactMatches.length > 0) return exactMatches.slice(0, cap);
+
+  const llmMatches = await matchProductWithLLM(product, index.items);
+  if (llmMatches !== null) return llmMatches.slice(0, cap);
+
+  // Only reached if the LLM call itself failed (network/Gateway hiccup) --
+  // a genuine "no match" from it returns [] above and is trusted as final.
   const ranked = await searchFolder('Packaged Products', product);
   return ranked.slice(0, cap);
 }
@@ -193,7 +274,15 @@ const FILENAME_NOISE_TOKENS = new Set(['removebg', 'preview', 'front', 'back', '
 export async function getPackagingTermForProduct(
   product: string
 ): Promise<string | null> {
-  const ranked = await searchFolder('Packaged Products', product);
+  const index = await getFolderIndex('Packaged Products');
+  const exactMatches = findExactProductMatches(index.items, product);
+  const llmMatches = exactMatches.length > 0 ? null : await matchProductWithLLM(product, index.items);
+  const ranked =
+    exactMatches.length > 0
+      ? exactMatches
+      : llmMatches !== null
+        ? llmMatches
+        : await searchFolder('Packaged Products', product);
   if (ranked.length === 0) {
     console.log('[mentor] getPackagingTermForProduct: no photo matched', { product });
     return null;

@@ -123,6 +123,35 @@ export function deriveMediaFields(
   };
 }
 
+// The compact (no-separator) form of a token set, product words only --
+// used to check whether a query names the *exact* same product as a
+// filename, rather than just something nearby in embedding space (see
+// findExactProductMatches below). Compact, not space-joined like
+// productKey above: a query the model wrote with a space ("bitter kola")
+// still needs to match a filename with none ("Bitterkola") -- joining
+// with no separator at all makes that comparison spelling-of-spaces-proof
+// while still catching the much more common wrong-spelling-order case via
+// the sort.
+function productKeyCompact(tokens: string[]): string {
+  const productTokens = tokens.filter((t) => !PACKAGING_VOCABULARY.has(t));
+  return (productTokens.length > 0 ? productTokens : tokens).sort().join('');
+}
+
+// Exact-match fast path for a named product (e.g. "palm oil"), tried
+// before the fuzzy BM25+semantic search in media-actions.ts's
+// getMediaForProduct/getPackagingTermForProduct. Fuzzy search embeds
+// filename tokens, not image content, so same-category products (palm
+// oil, groundnut oil -- both "oil") sit close together in that space and
+// both clear the relevance floor; an exact productKey match sidesteps
+// that collision entirely for the common case where the model named the
+// product precisely, at zero extra latency/cost. Falls back to fuzzy
+// search (unchanged) whenever this returns nothing, so a misspelled or
+// unusually-phrased product name is still found.
+export function findExactProductMatches(items: MediaItem[], query: string): MediaItem[] {
+  const queryKey = productKeyCompact(tokenize(query));
+  return items.filter((item) => productKeyCompact(item.tokens) === queryKey);
+}
+
 // "Favor variety across products" (see media-actions.ts's packaging-style
 // search): walk `ranked` in its given order (already relevance-sorted by
 // the caller) and take the first occurrence of each distinct productKey
