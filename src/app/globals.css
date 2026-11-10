@@ -88,7 +88,13 @@
      rule (ui/sidebar.tsx), and a plain unscoped className can't reliably
      beat a variant-scoped one through tailwind-merge, so inline style
      (unconditional, highest priority) is the deterministic way in. */
-  --page-canvas: #eff7f1;
+  --page-canvas: #e2f1e7;
+
+  /* The original --page-canvas shade, before it was deepened above. Kept
+     around under its own name for smaller surfaces that want the lighter
+     mint rather than the deepened page tone -- e.g. the reference-photo
+     tiles in the mentor chat's media gallery (media-gallery-panel.tsx). */
+  --surface-mint: #eff7f1;
 
   /* The nav rail's own surface -- same soft green as --page-canvas, so the
      rail reads as one continuous surface with the layout gutter around it
@@ -125,6 +131,7 @@
   --color-primary-foreground: var(--primary-foreground);
 
   --color-accent-gold: var(--accent-gold);
+  --color-surface-mint: var(--surface-mint);
 
   --shadow-soft: var(--shadow-soft);
   --shadow-popover: var(--shadow-popover);

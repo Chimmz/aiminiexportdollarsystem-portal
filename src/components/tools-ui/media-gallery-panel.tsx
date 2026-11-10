@@ -35,7 +35,7 @@ export function MediaGalleryPanel({ images }: { images: MediaGalleryImage[] }) {
             key={image.publicId}
             type="button"
             onClick={() => setOpenImage(image)}
-            className="group relative size-28 shrink-0 cursor-zoom-in overflow-hidden rounded-xl bg-sidebar ring-1 ring-foreground/10 transition-shadow hover:shadow-lg sm:size-36"
+            className="group relative size-28 shrink-0 cursor-zoom-in overflow-hidden rounded-xl bg-surface-mint ring-1 ring-foreground/10 transition-shadow hover:shadow-lg sm:size-36"
           >
             <Image
               src={image.url}
