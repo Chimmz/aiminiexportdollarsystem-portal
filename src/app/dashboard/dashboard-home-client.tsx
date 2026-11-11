@@ -121,11 +121,18 @@ export function DashboardHomeClient({
   return (
     <div className="space-y-12 px-8 py-14">
       {accessStatus.status === 'trial' && (
-        <FadeIn className="flex items-center gap-3 rounded-lg border border-accent-gold/30 bg-accent-gold/10 p-4 text-sm">
-          <MegaphoneIcon className="size-4 shrink-0 text-accent-gold" />
-          <p className="flex-1 text-foreground">
-            Your guide comes with a fast-expiring free trial with your mentor.
-          </p>
+        <FadeIn className="flex flex-col items-start gap-3 rounded-lg border border-accent-gold/30 bg-accent-gold/10 p-4 text-base sm:flex-row sm:items-center sm:text-sm">
+          {/* Icon + message stay grouped in their own row even while the
+              banner as a whole is stacked on mobile -- sm:contents unwraps
+              this div at the sm breakpoint so all three children (icon,
+              message, link) go back to being direct flex items in one row,
+              matching the original desktop layout exactly. */}
+          <div className="flex items-start gap-3 sm:contents">
+            <MegaphoneIcon className="mt-0.5 size-4 shrink-0 text-accent-gold sm:mt-0" />
+            <p className="flex-1 text-foreground">
+              Your guide comes with a fast-expiring free trial with your mentor.
+            </p>
+          </div>
           <Link
             href="/dashboard/upgrade"
             className="shrink-0 font-medium text-primary underline-offset-4 hover:underline"
@@ -238,7 +245,11 @@ export function DashboardHomeClient({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <UsageLineChart data={usage.history} granularity={usage.granularity} />
+              <UsageLineChart
+                data={usage.history}
+                granularity={usage.granularity}
+                className="h-56 sm:h-64"
+              />
             </CardContent>
           </Card>
         </FadeIn>

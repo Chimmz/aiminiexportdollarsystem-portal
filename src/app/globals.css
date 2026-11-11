@@ -214,7 +214,7 @@ h6 {
     @apply bg-background text-foreground;
   }
   html {
-    @apply font-sans;
+    @apply font-sans text-base;
   }
 
   /* Native <button> defaults to cursor: default in Chrome/Firefox, not

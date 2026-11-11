@@ -8,6 +8,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart';
+import { cn } from '@/lib/utils';
 
 const chartConfig: ChartConfig = {
   tokens: { label: 'Tokens', color: 'var(--primary)' },
@@ -33,9 +34,14 @@ interface UsageLineChartProps {
   // Defaults to 'day' so existing/cached callers that haven't threaded the
   // new field through yet still render the chart they always have.
   granularity?: 'hour' | 'day';
+  // Height override -- the mentor controls rail's narrow column wants the
+  // original compact height, but the dashboard home page has room to show
+  // this chart much bigger; defaults to the original h-28 so the rail
+  // (and any other existing caller) is unaffected.
+  className?: string;
 }
 
-export function UsageLineChart({ data, granularity = 'day' }: UsageLineChartProps) {
+export function UsageLineChart({ data, granularity = 'day', className }: UsageLineChartProps) {
   const formatLabel = granularity === 'hour' ? formatHour : formatShortDate;
   // Scoped to this instance -- this chart renders in two places at once
   // (dashboard home, mentor controls rail), and an SVG gradient's id has
@@ -44,7 +50,7 @@ export function UsageLineChart({ data, granularity = 'day' }: UsageLineChartProp
   const gradientId = `usage-tokens-gradient-${useId()}`;
 
   return (
-    <ChartContainer config={chartConfig} className="h-28 w-full">
+    <ChartContainer config={chartConfig} className={cn('h-28 w-full', className)}>
       <AreaChart data={data} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
