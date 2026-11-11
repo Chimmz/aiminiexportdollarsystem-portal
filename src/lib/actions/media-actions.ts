@@ -236,14 +236,21 @@ oil" is not groundnut oil).`,
 export async function getMediaForProduct(product: string, cap = 5): Promise<MediaItem[]> {
   const index = await getFolderIndex('Packaged Products');
 
-  const exactMatches = findExactProductMatches(index.items, product);
-  if (exactMatches.length > 0) return exactMatches.slice(0, cap);
-
+  // LLM match is tried first and trusted whenever it succeeds -- it's the
+  // one resolver that reasons about which *distinct* productKeys actually
+  // belong to the same real product, which an exact string match can't
+  // do: two photos of the exact same product (e.g. "egusi" and
+  // "egusi-sample") tokenize to two different productKeys, so matching on
+  // literal key equality alone silently drops every sibling image whose
+  // filename isn't the one exact spelling the query happened to use.
+  // Exact match only kicks in below as a fallback for when the LLM call
+  // itself fails (network/Gateway hiccup), not as a shortcut around it.
   const llmMatches = await matchProductWithLLM(product, index.items);
   if (llmMatches !== null) return llmMatches.slice(0, cap);
 
-  // Only reached if the LLM call itself failed (network/Gateway hiccup) --
-  // a genuine "no match" from it returns [] above and is trusted as final.
+  const exactMatches = findExactProductMatches(index.items, product);
+  if (exactMatches.length > 0) return exactMatches.slice(0, cap);
+
   const ranked = await searchFolder('Packaged Products', product);
   return ranked.slice(0, cap);
 }
@@ -275,13 +282,13 @@ export async function getPackagingTermForProduct(
   product: string
 ): Promise<string | null> {
   const index = await getFolderIndex('Packaged Products');
-  const exactMatches = findExactProductMatches(index.items, product);
-  const llmMatches = exactMatches.length > 0 ? null : await matchProductWithLLM(product, index.items);
+  const llmMatches = await matchProductWithLLM(product, index.items);
+  const exactMatches = llmMatches !== null ? null : findExactProductMatches(index.items, product);
   const ranked =
-    exactMatches.length > 0
-      ? exactMatches
-      : llmMatches !== null
-        ? llmMatches
+    llmMatches !== null
+      ? llmMatches
+      : exactMatches!.length > 0
+        ? exactMatches!
         : await searchFolder('Packaged Products', product);
   if (ranked.length === 0) {
     console.log('[mentor] getPackagingTermForProduct: no photo matched', { product });
