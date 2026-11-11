@@ -31,10 +31,18 @@ export interface PdfGuideReceiptEmailProps {
 const main = { backgroundColor: '#f6f6f4', fontFamily: 'Helvetica, Arial, sans-serif' };
 const container = {
   backgroundColor: '#ffffff',
-  margin: '0 auto',
+  margin: '32px auto',
   padding: '32px 28px',
   borderRadius: '16px',
   maxWidth: '480px',
+};
+const brand = {
+  fontSize: '12px',
+  fontWeight: 600,
+  color: '#94a3b8',
+  margin: '0 0 16px',
+  textTransform: 'uppercase' as const,
+  letterSpacing: '0.04em',
 };
 const heading = { fontSize: '20px', fontWeight: 600, color: '#0f172a', margin: '0 0 8px' };
 const subtext = { fontSize: '14px', color: '#475569', margin: '0 0 16px', lineHeight: '22px' };
@@ -74,11 +82,20 @@ export function PdfGuideReceiptEmail({
       <Preview>Your guide and bonus contacts are ready</Preview>
       <Body style={main}>
         <Container style={container}>
+          <Text style={brand}>The AI-Powered Mini Export Dollar System</Text>
           <Heading style={heading}>Thanks for grabbing the guide, {firstName}</Heading>
           <Text style={subtext}>Your payment went through. Here is what is waiting for you:</Text>
 
           <Section style={{ margin: '0 0 20px' }}>
-            {resources.map((resource) => (
+            {/* resources[0] is the guide itself; the free mentor trial sits
+                right after it and before the three contact directories,
+                matching the guide -> mentor -> bonus-contacts order the
+                sales copy itself uses -- not folded into the shared
+                `resources` array since it's a trial of an ongoing feature,
+                not a downloadable resource like the other three. */}
+            <Text style={listItem}>&bull; {resources[0].title}</Text>
+            <Text style={listItem}>&bull; Free trial access to your AI Export Mentor</Text>
+            {resources.slice(1).map((resource) => (
               <Text key={resource.id} style={listItem}>
                 &bull; {resource.title}
               </Text>
@@ -91,7 +108,7 @@ export function PdfGuideReceiptEmail({
                 <tr style={row}>
                   <td style={rowLabel}>Item</td>
                   <td style={rowValue} align="right">
-                    Export Guide + Directories
+                    Export Guide + Directories + AI Mentor Trial
                   </td>
                 </tr>
                 <tr style={row}>

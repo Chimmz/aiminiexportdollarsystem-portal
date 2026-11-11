@@ -17,10 +17,18 @@ export interface TrialUpgradePromptEmailProps {
 const main = { backgroundColor: '#f6f6f4', fontFamily: 'Helvetica, Arial, sans-serif' };
 const container = {
   backgroundColor: '#ffffff',
-  margin: '0 auto',
+  margin: '32px auto',
   padding: '32px 28px',
   borderRadius: '16px',
   maxWidth: '480px',
+};
+const brand = {
+  fontSize: '12px',
+  fontWeight: 600,
+  color: '#94a3b8',
+  margin: '0 0 16px',
+  textTransform: 'uppercase' as const,
+  letterSpacing: '0.04em',
 };
 const heading = { fontSize: '20px', fontWeight: 600, color: '#0f172a', margin: '0 0 8px' };
 const subtext = { fontSize: '14px', color: '#475569', margin: '0 0 24px', lineHeight: '22px' };
@@ -43,6 +51,7 @@ export function TrialUpgradePromptEmail({ firstName, upgradeUrl }: TrialUpgradeP
       <Preview>Your free trial started the moment you sent your first message</Preview>
       <Body style={main}>
         <Container style={container}>
+          <Text style={brand}>The AI-Powered Mini Export Dollar System</Text>
           <Heading style={heading}>You&apos;re in, {firstName}</Heading>
           <Text style={subtext}>
             You just sent your first message to Eva. Your free trial started the moment you
