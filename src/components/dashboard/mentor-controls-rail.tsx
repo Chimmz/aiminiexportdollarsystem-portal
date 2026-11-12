@@ -77,6 +77,7 @@ interface MentorControlsRailProps {
   hasMessages: boolean;
   accessStatus: AccessStatus;
   initialFacts: ProfileFact[];
+  initialJourneyFields: JourneyHighlightField[];
 }
 
 export function MentorControlsRail({
@@ -84,6 +85,7 @@ export function MentorControlsRail({
   hasMessages,
   accessStatus,
   initialFacts,
+  initialJourneyFields,
 }: MentorControlsRailProps) {
   // Below lg, the desktop aside (hidden lg:flex, below) never rendered at
   // all -- Memory, usage, and chat-clearing were simply unreachable on
@@ -100,22 +102,34 @@ export function MentorControlsRail({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [open, setOpen] = useState(true);
   const [facts, setFacts] = useState<ProfileFact[] | null>(initialFacts);
-  // Fetched client-side only (no SSR prop, unlike initialFacts) -- the
-  // brief "Loading memory..." state already covers that gap, and it
-  // keeps this addition out of page.tsx's own data-fetching. Read-only
-  // here regardless (see getProductAndCountryProgress's own comment on
-  // why), so there's no write path to wire up for these two.
-  const [journeyFields, setJourneyFields] = useState<JourneyHighlightField[] | null>(null);
-  // Tracks the last initialFacts reference actually applied below, so a
-  // genuinely new one (page.tsx re-fetched, see router.refresh() in
-  // mentor-chat-client.tsx) can be caught and applied during render --
-  // React's documented pattern for "reset state when a prop changes"
-  // (https://react.dev/learn/you-might-not-need-an-effect), which bails
-  // out of the extra render a useEffect version of this would cost.
+  // SSR-seeded the same way facts/initialFacts is now (page.tsx), after
+  // this used to have no seed at all and was only ever fetched once on
+  // this component's own mount -- which meant a freshly-saved product or
+  // country never showed up here without a full page reload, since
+  // router.refresh() re-renders page.tsx but doesn't remount this
+  // already-mounted client component, so that mount-only effect never
+  // ran again. Read-only here regardless (see getProductAndCountryProgress's
+  // own comment on why), so there's still no write path to wire up for
+  // these two.
+  const [journeyFields, setJourneyFields] =
+    useState<JourneyHighlightField[]>(initialJourneyFields);
+  // Tracks the last initialFacts/initialJourneyFields references actually
+  // applied below, so a genuinely new one (page.tsx re-fetched, see
+  // router.refresh() in mentor-chat-client.tsx) can be caught and applied
+  // during render -- React's documented pattern for "reset state when a
+  // prop changes" (https://react.dev/learn/you-might-not-need-an-effect),
+  // which bails out of the extra render a useEffect version of this would
+  // cost.
   const [prevInitialFacts, setPrevInitialFacts] = useState(initialFacts);
   if (initialFacts !== prevInitialFacts) {
     setPrevInitialFacts(initialFacts);
     setFacts(initialFacts);
+  }
+  const [prevInitialJourneyFields, setPrevInitialJourneyFields] =
+    useState(initialJourneyFields);
+  if (initialJourneyFields !== prevInitialJourneyFields) {
+    setPrevInitialJourneyFields(initialJourneyFields);
+    setJourneyFields(initialJourneyFields);
   }
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState('');
@@ -142,25 +156,6 @@ export function MentorControlsRail({
       setFacts([]);
     }
   }
-
-  // journeyFields has no SSR-seeded prop the way facts does (no
-  // initialFacts equivalent), so it needs its own mount fetch rather than
-  // only refreshing after a write the way loadFacts above does -- there's
-  // no write path for these two fields at all (read-only in this rail).
-  useEffect(() => {
-    fetch('/api/mentor/memory')
-      .then((res) => {
-        if (!res.ok) throw new Error(`status ${res.status}`);
-        return res.json();
-      })
-      .then((data: { journeyFields: JourneyHighlightField[] }) =>
-        setJourneyFields(data.journeyFields)
-      )
-      .catch((err) => {
-        console.error('[mentor] load journey fields failed:', err);
-        setJourneyFields([]);
-      });
-  }, []);
 
   // Fetch on mount, then again every time usageVersion is bumped (see
   // mentor-context.tsx) -- route.ts pushes that signal right after a turn

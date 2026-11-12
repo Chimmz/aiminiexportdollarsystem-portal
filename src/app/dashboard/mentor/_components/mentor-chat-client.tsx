@@ -30,6 +30,7 @@ import { paymentSuccessCopy } from '@/lib/utils/plan-utils';
 import type { AccessStatus } from '@/lib/utils/user-utils';
 import type { SavedPriceQuote } from '@/lib/actions/pricing-actions';
 import type { ProfileFact } from '@/lib/utils/memory-utils';
+import type { JourneyHighlightField } from '@/lib/utils/journey-utils';
 import { starterPrompts } from '../config';
 import { isSuggestNextStepsResult, messageHasVisibleContent } from '../_utils';
 
@@ -68,6 +69,7 @@ export function MentorChatClient({
   accessStatus,
   savedPriceQuotes,
   initialFacts,
+  initialJourneyFields,
 }: {
   firstName: string | null;
   initialMessages: AppMessage[];
@@ -78,11 +80,12 @@ export function MentorChatClient({
   // need to flow back in here, since PricingCalculatorPanel's own local
   // `saved` state already reflects that without a reload.
   savedPriceQuotes: Record<string, SavedPriceQuote>;
-  // Passed straight through to MentorControlsRail -- this component has
-  // no use for it itself beyond that. Refreshed on every turn via
+  // Both passed straight through to MentorControlsRail -- this component
+  // has no use for either itself beyond that. Refreshed on every turn via
   // useChat's onFinish below calling router.refresh(), which re-runs
-  // page.tsx and sends a new value down, not just on page load.
+  // page.tsx and sends fresh values down, not just on page load.
   initialFacts: ProfileFact[];
+  initialJourneyFields: JourneyHighlightField[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -523,6 +526,7 @@ export function MentorChatClient({
         hasMessages={messages.length > 0}
         accessStatus={accessStatus}
         initialFacts={initialFacts}
+        initialJourneyFields={initialJourneyFields}
       />
       {/* No horizontal padding on this column itself -- that would inset
           Conversation's own scrollable box (and so its native scrollbar)
