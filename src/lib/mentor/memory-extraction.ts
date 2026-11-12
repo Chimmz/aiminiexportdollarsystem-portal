@@ -57,7 +57,27 @@ function buildSchema(
                 not a personal fact, and it's already captured by
                 setupUpdates/dealUpdates below. Recording it a second time
                 here under a new name just risks the two drifting out of
-                sync.`
+                sync.
+
+                One narrow exception: factType "product_switch_candidate",
+                value format "<product> (x<count>)" e.g. "ginger (x2)" --
+                tracks repeat interest in a DIFFERENT product than the one
+                already saved as decide_product below, specifically so
+                Eva can ask about switching rather than switch silently
+                (see decide_product's own notes under setupUpdates). Only
+                relevant once decide_product is already "done". This
+                turn's message shows genuine, specific interest (pricing,
+                demand, sourcing -- never a bare question or brainstorming)
+                in a product that differs from the one already saved:
+                matches an existing product_switch_candidate's product ->
+                "update", same value with count+1; differs from the
+                existing candidate too -> "update", replacing it at count
+                1; no candidate recorded yet -> "add" at count 1. Message
+                is about the SAME product already saved in decide_product,
+                or decide_product isn't done yet -> "delete" any existing
+                product_switch_candidate, it's no longer relevant. Most
+                turns touch nothing here at all -- only emit an entry when
+                this candidate's state genuinely needs to change.`
           ),
           factValue: z
             .string()
@@ -113,6 +133,20 @@ function buildSchema(
           they produce NO entry here, ever -- not even when decide_product
           is still not_started. Only the user's own first-person statement
           of leaning or deciding counts.
+
+          Second, specifically for decide_product while it's still
+          not_started: check "the mentor's message right before this
+          user message" given below. If it was genuinely asking what
+          product the user wants to export, the user's very next reply
+          naming one counts as answering it even with zero "I want"
+          framing -- a bare "Garri" or "Ginger and garlic" IS the answer
+          to a direct question, not a stray word to dismiss for lacking
+          first-person phrasing. Hedged ("maybe garri", "thinking about
+          ginger") is still "in_progress"; a plain, confident answer with
+          no hedge is "done" straight away, same as any other firm choice
+          below. This is the one place a bare product name on its own is
+          enough -- outside of directly answering that exact question, it
+          still needs the real signal described next.
 
           Given that, how readily a step takes a new value also depends on
           whether it's already been recorded (check the current
@@ -258,7 +292,17 @@ Past deals: ${pastLine}`;
 export async function extractAndUpdateMemory(
   userId: string,
   memory: UserMemory,
-  turn: { userText: string; assistantText: string }
+  turn: {
+    userText: string;
+    assistantText: string;
+    // Eva's own message right before this user message, if any -- what
+    // the user might just be giving a bare answer to ("What product are
+    // you thinking of?" -> "Garri"). Null for the very first message of a
+    // conversation, or if that prior message wasn't from Eva. See
+    // decide_product's own notes in buildSchema above for why this
+    // matters.
+    previousAssistantText?: string | null;
+  }
 ): Promise<boolean> {
   if (!turn.userText.trim()) return false;
 
@@ -288,6 +332,12 @@ information) genuinely have nothing to save.
 
 What's already known about this user:
 ${formatContext(memory)}
+
+The mentor's message right before this user message, i.e. whatever the
+user below might just be giving a bare, direct answer to (none if this is
+the first message of the conversation, or the prior message wasn't the
+mentor's):
+${turn.previousAssistantText ? `"${turn.previousAssistantText}"` : '(none)'}
 
 The user's message this turn:
 "${turn.userText}"

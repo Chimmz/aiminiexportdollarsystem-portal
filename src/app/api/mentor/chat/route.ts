@@ -245,6 +245,18 @@ export async function POST(req: Request) {
         const newMessages = finalMessages.slice(messages.length - 1);
         const [userMsg, ...assistantMsgs] = newMessages;
 
+        // The mentor's own message immediately before the user's new one
+        // -- i.e. whatever Eva last asked, if anything, that this user
+        // message might just be a bare answer to ("What product are you
+        // thinking of exporting?" -> "Garri"). conversationHistory is
+        // everything already persisted BEFORE this turn's user message
+        // (see its own fetch above), so its last entry is exactly that --
+        // without it, extractAndUpdateMemory only ever saw the bare
+        // answer with zero context for why it should count as a decision.
+        const priorAssistantMsg = conversationHistory.at(-1);
+        const previousAssistantText =
+          priorAssistantMsg?.role === 'assistant' ? getMessageText(priorAssistantMsg) : null;
+
         // Both happen once per turn, off the same newMessages -- persist
         // first, then the deterministic memory extraction (see
         // lib/mentor/memory-extraction.ts for why this replaced the old
@@ -258,6 +270,7 @@ export async function POST(req: Request) {
           await extractAndUpdateMemory(user.id, userMemory, {
             userText: userMsg ? getMessageText(userMsg) : '',
             assistantText: assistantMsgs.map((m) => getMessageText(m)).join('\n'),
+            previousAssistantText,
           });
         } catch (err) {
           console.error(
