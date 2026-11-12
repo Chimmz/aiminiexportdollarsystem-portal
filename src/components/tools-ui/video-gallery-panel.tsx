@@ -5,6 +5,13 @@ import {
   toInstagramEmbedUrl,
   type RetrievedVideo,
 } from '@/lib/utils/video-utils';
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselPrevious,
+  CarouselNext,
+} from '@/components/ui/carousel';
 
 // Rendered for the searchVideos tool's output (see
 // conversation-messages.tsx's 'tool-searchVideos' case) -- real demo
@@ -93,18 +100,33 @@ function InstagramPlayer({ video }: { video: RetrievedVideo }) {
   );
 }
 
+// Same Carousel primitive as the media gallery above, for the same
+// reason -- a wrapping row of mixed horizontal/vertical clips read as a
+// layout glitch once more than 1-2 videos surfaced at once.
 export function VideoGalleryPanel({ videos }: { videos: RetrievedVideo[] }) {
   if (videos.length === 0) return null;
 
   return (
-    <div className="not-prose flex flex-wrap items-start gap-3 py-2">
-      {videos.map((video) =>
-        video.platform === 'youtube' ? (
-          <YouTubePlayer key={video.id} video={video} />
-        ) : (
-          <InstagramPlayer key={video.id} video={video} />
-        )
-      )}
+    <div className="not-prose py-2">
+      <Carousel opts={{ align: 'start', dragFree: true }}>
+        <CarouselContent className="-ml-3 items-start">
+          {videos.map((video) => (
+            <CarouselItem key={video.id} className="basis-auto pl-3">
+              {video.platform === 'youtube' ? (
+                <YouTubePlayer video={video} />
+              ) : (
+                <InstagramPlayer video={video} />
+              )}
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+        {videos.length > 1 ? (
+          <>
+            <CarouselPrevious className="-left-3" />
+            <CarouselNext className="-right-3" />
+          </>
+        ) : null}
+      </Carousel>
     </div>
   );
 }

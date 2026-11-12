@@ -5,6 +5,14 @@ import Image from 'next/image';
 import { XIcon } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselPrevious,
+  CarouselNext,
+} from '@/components/ui/carousel';
+import { LoadingImage } from '@/components/ui/loading-image';
 
 export interface MediaGalleryImage {
   publicId: string;
@@ -15,13 +23,16 @@ export interface MediaGalleryImage {
 }
 
 // Rendered for the searchMedia tool's output (see conversation-messages.tsx's
-// 'tool-searchMedia' case) -- a small strip of real reference photos, not
-// described in text. `cursor-zoom-in` is the actual browser-native
-// magnifying-glass-with-plus cursor, not a custom icon overlay, for the
-// hover affordance; clicking opens the full image in Dialog, whose own
-// DialogOverlay (see ui/dialog.tsx) already gives the blurred-backdrop +
-// zoom-in-95 "grows into a modal" animation this was asked for, so none
-// of that needed rebuilding here.
+// 'tool-searchMedia' case) -- real reference photos, not described in
+// text, in a horizontally-scrollable Carousel (@/components/ui/carousel,
+// same embla-based primitive tools-ui/contacts-carousel.tsx uses) rather
+// than a flex-wrap strip -- wrapping onto a second row read as a layout
+// glitch once a query surfaced more than 3-4 photos. `cursor-zoom-in` is
+// the actual browser-native magnifying-glass-with-plus cursor, not a
+// custom icon overlay, for the hover affordance; clicking opens the full
+// image in Dialog, whose own DialogOverlay (see ui/dialog.tsx) already
+// gives the blurred-backdrop + zoom-in-95 "grows into a modal" animation
+// this was asked for, so none of that needed rebuilding here.
 export function MediaGalleryPanel({ images }: { images: MediaGalleryImage[] }) {
   const [openImage, setOpenImage] = useState<MediaGalleryImage | null>(null);
 
@@ -29,23 +40,35 @@ export function MediaGalleryPanel({ images }: { images: MediaGalleryImage[] }) {
 
   return (
     <>
-      <div className="not-prose flex flex-wrap gap-3 py-2">
-        {images.map((image) => (
-          <button
-            key={image.publicId}
-            type="button"
-            onClick={() => setOpenImage(image)}
-            className="group relative size-28 shrink-0 cursor-zoom-in overflow-hidden rounded-xl bg-surface-mint ring-1 ring-foreground/10 transition-shadow hover:shadow-lg sm:size-36"
-          >
-            <Image
-              src={image.url}
-              alt={image.label}
-              fill
-              sizes="144px"
-              className="object-contain transition-transform duration-200 group-hover:scale-105"
-            />
-          </button>
-        ))}
+      <div className="not-prose py-2">
+        <Carousel opts={{ align: 'start', dragFree: true }}>
+          <CarouselContent className="-ml-3">
+            {images.map((image) => (
+              <CarouselItem key={image.publicId} className="basis-auto pl-3">
+                <button
+                  type="button"
+                  onClick={() => setOpenImage(image)}
+                  className="group relative size-28 shrink-0 cursor-zoom-in overflow-hidden rounded-xl bg-surface-mint ring-1 ring-foreground/10 transition-shadow hover:shadow-lg sm:size-36"
+                >
+                  <LoadingImage
+                    src={image.url}
+                    alt={image.label}
+                    fill
+                    sizes="144px"
+                    className="object-cover transition-transform duration-200 group-hover:scale-105"
+                    skeletonClassName="bg-gray-200"
+                  />
+                </button>
+              </CarouselItem>
+            ))}
+          </CarouselContent>
+          {images.length > 1 ? (
+            <>
+              <CarouselPrevious className="-left-3" />
+              <CarouselNext className="-right-3" />
+            </>
+          ) : null}
+        </Carousel>
       </div>
 
       <Dialog open={openImage !== null} onOpenChange={(open) => !open && setOpenImage(null)}>
