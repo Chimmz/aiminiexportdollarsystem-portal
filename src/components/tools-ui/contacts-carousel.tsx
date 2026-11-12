@@ -172,86 +172,84 @@ export function ContactsCarousel({
   if (contacts.length === 0) return null;
 
   return (
-    <div className="py-5">
-      <Carousel opts={{ align: 'start' }}>
-        <CarouselContent className="p-3">
-          {contacts.map((contact, i) => {
-            return (
-              <CarouselItem key={i} className="basis-1/1 md:basis-1/2">
-                <div className="flex h-full flex-col gap-3 rounded-2xl bg-card p-5 ring-1 ring-foreground/10">
-                  <div className="flex items-start gap-3">
-                    <Avatar size="lg">
-                      <AvatarFallback>{initials(contact.name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className="truncate font-semibold text-foreground"
-                        title={contact.name}
-                      >
-                        {contact.name}
-                      </p>
-                      {contact.location ? (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin size={13} className="mb-1" />
-                          {contact.location}
-                        </span>
+    <Carousel className="" opts={{ align: 'start' }}>
+      <CarouselContent className="items-start p-3">
+        {contacts.map((contact, i) => {
+          return (
+            <CarouselItem key={i} className="basis-1/1 md:basis-1/2">
+              <div className="flex flex-col gap-3 rounded-2xl border bg-surface-mint/50 p-5">
+                <div className="flex items-start gap-3">
+                  <Avatar size="lg">
+                    <AvatarFallback>{initials(contact.name)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="truncate font-semibold text-foreground"
+                      title={contact.name}
+                    >
+                      {contact.name}
+                    </p>
+                    {contact.location ? (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <MapPin size={13} className="mb-1" />
+                        {contact.location}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {contact.summary ? (
+                  <SummaryField summary={contact.summary} query={query} />
+                ) : null}
+
+                {contact.phone ||
+                contact.email ||
+                contact.website ||
+                contact.instagram ? (
+                  <>
+                    <Separator className="my-2" />
+                    <div className="flex flex-col gap-1.5 text-sm">
+                      {contact.phone ? <PhoneField phone={contact.phone} /> : null}
+                      {contact.email ? (
+                        <ContactLink icon={Mail} href={`mailto:${contact.email}`}>
+                          {contact.email}
+                        </ContactLink>
+                      ) : null}
+                      {contact.website ? (
+                        <ContactLink icon={Globe} href={resolveUrl(contact.website)}>
+                          {contact.website}
+                        </ContactLink>
+                      ) : null}
+                      {contact.instagram ? (
+                        <ContactLink icon={AtSign} href={resolveUrl(contact.instagram)}>
+                          {contact.instagram}
+                        </ContactLink>
                       ) : null}
                     </div>
-                  </div>
+                  </>
+                ) : null}
 
-                  {contact.summary ? (
-                    <SummaryField summary={contact.summary} query={query} />
-                  ) : null}
+                {contact.extra ? (
+                  <p className="text-xs text-muted-foreground">
+                    {highlightMatches(contact.extra, query)}
+                  </p>
+                ) : null}
 
-                  {contact.phone ||
-                  contact.email ||
-                  contact.website ||
-                  contact.instagram ? (
-                    <>
-                      <Separator className="my-6" />
-                      <div className="flex flex-col gap-1.5 text-sm">
-                        {contact.phone ? <PhoneField phone={contact.phone} /> : null}
-                        {contact.email ? (
-                          <ContactLink icon={Mail} href={`mailto:${contact.email}`}>
-                            {contact.email}
-                          </ContactLink>
-                        ) : null}
-                        {contact.website ? (
-                          <ContactLink icon={Globe} href={resolveUrl(contact.website)}>
-                            {contact.website}
-                          </ContactLink>
-                        ) : null}
-                        {contact.instagram ? (
-                          <ContactLink icon={AtSign} href={resolveUrl(contact.instagram)}>
-                            {contact.instagram}
-                          </ContactLink>
-                        ) : null}
-                      </div>
-                    </>
-                  ) : null}
-
-                  {contact.extra ? (
-                    <p className="text-xs text-muted-foreground">
-                      {highlightMatches(contact.extra, query)}
-                    </p>
-                  ) : null}
-
-                  {contact.priceNote ? (
-                    <p className="text-xs text-muted-foreground">{contact.priceNote}</p>
-                  ) : null}
-                </div>
-              </CarouselItem>
-            );
-          })}
-        </CarouselContent>
-        {/* Default shadcn position sits -3rem outside the carousel's own
+                {contact.priceNote ? (
+                  <p className="text-xs text-muted-foreground">{contact.priceNote}</p>
+                ) : null}
+              </div>
+            </CarouselItem>
+          );
+        })}
+      </CarouselContent>
+      {/* Default shadcn position sits -3rem outside the carousel's own
             box (-left-12/-right-12), which depends on whatever wraps this
             having that much spare room -- pulled inward instead so the
             buttons are always inside the visible area regardless of this
             component's own padding. */}
-        <CarouselPrevious className="-left-3" />
-        <CarouselNext className="-right-3" />
-      </Carousel>
-    </div>
+      <CarouselPrevious className="-left-3" />
+      <CarouselNext className="-right-3" />
+    </Carousel>
   );
 }
