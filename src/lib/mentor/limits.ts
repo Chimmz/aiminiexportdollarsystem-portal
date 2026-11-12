@@ -14,9 +14,10 @@
 // thousand tokens per turn on their own (the system prompt alone is sent
 // fresh every single turn), which is what the old trial_messages_limit
 // (10 messages, dropped from `users` in migrations/0014) was
-// approximating by message count instead -- 300k gives real room for a
-// trial to actually show someone what Eva's like before they hit it.
-export const TRIAL_TOKEN_BUDGET = 300_000;
+// approximating by message count instead.
+// Temporarily bumped to 500k (was 200k, originally 300k) -- revert back
+// down once the "for the moment" reason for this bump has passed.
+export const TRIAL_TOKEN_BUDGET = 500_000;
 
 // RATE_LIMIT_WINDOW_HOURS / RATE_LIMIT_TOKENS_*: a separate, rolling-window
 // abuse limit that applies to trial AND paid users alike -- protects the
