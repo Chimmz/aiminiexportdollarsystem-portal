@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useSyncExternalStore } from 'react';
 import type { AppMessage } from '@/app/api/mentor/chat/route';
 import {
   Message,
@@ -83,6 +83,29 @@ function normalizeParts(parts: AppMessage['parts']): AppMessage['parts'] {
   return [...merged, ...media];
 }
 
+// formatMessageTime renders in whichever timezone it runs in -- SSR runs
+// in the server's timezone (prod and local both), hydration runs in the
+// viewer's, so computing it directly during render produced different
+// text on each pass and React treated that as a hydration mismatch
+// (error #418), which tore down and remounted the whole message list on
+// every reload, on the live site too since its server timezone differs
+// from a Nigeria-based viewer's just as much as a local dev server's
+// does. useSyncExternalStore's getServerSnapshot is React's own
+// documented way to handle a value that's legitimately allowed to differ
+// between server and client -- it's used for the hydration pass itself
+// (matching what SSR rendered, undefined), then getSnapshot's real value
+// takes over right after, as an ordinary client-only update rather than
+// a setState-in-effect cascading render.
+const noopSubscribe = () => () => {};
+
+function useMessageTimestamp(iso: string | undefined): string | undefined {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => (iso ? formatMessageTime(iso) : undefined),
+    () => undefined
+  );
+}
+
 interface ConversationMessagesProps {
   messages: AppMessage[];
   showLoadingIndicator: boolean;
@@ -104,6 +127,149 @@ interface ConversationMessagesProps {
   savedPriceQuotes: Record<string, SavedPriceQuote>;
 }
 
+// Pulled out of ConversationMessages' own .map() so useMessageTimestamp
+// (a hook) gets one stable call site per message, keyed by message.id --
+// calling a hook directly inside .map() would run it a different number
+// of times across renders as the message list grows, which breaks React's
+// per-component hook ordering.
+function ConversationMessage({
+  message,
+  onPanelToggle,
+  onSendMessage,
+  savedPriceQuotes,
+}: {
+  message: AppMessage;
+  onPanelToggle: () => void;
+  onSendMessage: (text: string) => void;
+  savedPriceQuotes: Record<string, SavedPriceQuote>;
+}) {
+  const timestamp = useMessageTimestamp(message.metadata?.createdAt);
+
+  return (
+    <MessageErrorBoundary>
+      <div
+        className={cn(
+          'flex flex-col',
+          message.role === 'user' && 'group relative justify-end pt-4 pb-6'
+        )}
+      >
+        {message.role === 'user' && timestamp ? (
+          <span className="absolute top-0 right-1 text-[10px] text-muted-foreground lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100">
+            {timestamp}
+          </span>
+        ) : null}
+        {message.role === 'assistant' && <EvaAvatar className="mb-3" />}
+        <Message from={message.role} className="min-w-0">
+          <MessageContent>
+            {normalizeParts(message.parts).map((part, i) => {
+              const key = `${message.id}-${i}`;
+              switch (part.type) {
+                case 'text':
+                  return <MessageResponse key={key}>{part.text}</MessageResponse>;
+                // No more manual `part.input as {...}` / `part.output as
+                // {...}` casts in any of these four -- AppMessage (see
+                // lib/ai/message.ts) runs every tool part through
+                // InferUITools, so narrowing on part.type then
+                // part.state above already gives input/output their
+                // real shape straight from each tool's own zod schema
+                // and execute return type.
+                case 'tool-searchContacts': {
+                  if (part.state !== 'output-available') return null;
+                  const { input, output } = part;
+                  return (
+                    <Fragment key={key}>
+                      <ContactSearchPanel
+                        query={input.query}
+                        locations={input.locations}
+                        contacts={output.contacts}
+                        note={output.note}
+                        onToggle={onPanelToggle}
+                      />
+                      <ContactsCarousel contacts={output.contacts} query={input.query} />
+                    </Fragment>
+                  );
+                }
+
+                case 'tool-searchKb': {
+                  if (part.state !== 'output-available') return null;
+                  const { input, output } = part;
+                  return (
+                    <SearchKbPanel
+                      key={key}
+                      query={input.query}
+                      keyword={input.keyword}
+                      chunks={output.chunks}
+                      retrievedInMs={output.retrievedInMs}
+                      onToggle={onPanelToggle}
+                    />
+                  );
+                }
+
+                case 'tool-calculatePricing': {
+                  if (part.state !== 'output-available') return null;
+                  const { output } = part;
+                  return (
+                    <PricingCalculatorPanel
+                      key={key}
+                      toolCallId={part.toolCallId}
+                      product={output.product}
+                      bankRate={output.bankRate}
+                      asOf={output.asOf}
+                      isFallback={output.isFallback}
+                      savedQuote={savedPriceQuotes[part.toolCallId] ?? null}
+                      onSave={onSendMessage}
+                      onToggle={onPanelToggle}
+                    />
+                  );
+                }
+
+                case 'tool-searchMedia': {
+                  if (part.state !== 'output-available') return null;
+                  return <MediaGalleryPanel key={key} images={part.output.images} />;
+                }
+
+                case 'tool-searchVideos': {
+                  if (part.state !== 'output-available') return null;
+                  return <VideoGalleryPanel key={key} videos={part.output.videos} />;
+                }
+                default:
+                  return null;
+              }
+            })}
+          </MessageContent>
+          {message.role === 'assistant' && messageHasText(message) ? (
+            <MessageFeedback
+              messageId={message.id}
+              text={getMessageText(message)}
+              timestamp={timestamp}
+              initialReaction={message.metadata?.reaction ?? null}
+              initialNote={message.metadata?.reactionNote ?? null}
+            />
+          ) : null}
+        </Message>
+        {/* Absolutely positioned just below the bubble's bottom-right
+          corner (pb-5 on the wrapper above reserves the room), same
+          hover behavior as the timestamp (always visible below lg,
+          hover-only at lg and up, off the same outer `group`). A
+          size and color step down from MessageFeedback's own row --
+          it's the only action here, not one of three, and sits
+          right under the bubble rather than needing to read as
+          clearly as a row of icons does. */}
+        {message.role === 'user' && messageHasText(message) ? (
+          <MessageActions className="absolute right-1 bottom-0 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100">
+            <CopyMessageAction
+              text={getMessageText(message)}
+              size="icon-xs"
+              iconClassName="size-3"
+              className="text-muted-foreground"
+            />
+          </MessageActions>
+        ) : null}
+      </div>
+    </MessageErrorBoundary>
+  );
+}
+
 export function ConversationMessages({
   messages,
   showLoadingIndicator,
@@ -113,141 +279,15 @@ export function ConversationMessages({
 }: ConversationMessagesProps) {
   return (
     <Container className="flex flex-col">
-      {messages.map((message) => {
-        const timestamp = message.metadata?.createdAt
-          ? formatMessageTime(message.metadata.createdAt)
-          : null;
-        return (
-          <MessageErrorBoundary key={message.id}>
-            <div
-              className={cn(
-                'flex flex-col',
-                message.role === 'user' && 'group relative justify-end pt-4 pb-6'
-              )}
-            >
-              {message.role === 'user' && timestamp ? (
-                <span className="absolute top-0 right-1 text-[10px] text-muted-foreground lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100">
-                  {timestamp}
-                </span>
-              ) : null}
-              {message.role === 'assistant' && <EvaAvatar className="mb-3" />}
-              <Message from={message.role} className="min-w-0">
-                <MessageContent>
-                  {normalizeParts(message.parts).map((part, i) => {
-                    const key = `${message.id}-${i}`;
-                    switch (part.type) {
-                      case 'text':
-                        return <MessageResponse key={key}>{part.text}</MessageResponse>;
-                      // No more manual `part.input as {...}` / `part.output as
-                      // {...}` casts in any of these four -- AppMessage (see
-                      // lib/ai/message.ts) runs every tool part through
-                      // InferUITools, so narrowing on part.type then
-                      // part.state above already gives input/output their
-                      // real shape straight from each tool's own zod schema
-                      // and execute return type.
-                      case 'tool-searchContacts': {
-                        if (part.state !== 'output-available') return null;
-                        const { input, output } = part;
-                        return (
-                          <Fragment key={key}>
-                            <ContactSearchPanel
-                              query={input.query}
-                              locations={input.locations}
-                              contacts={output.contacts}
-                              note={output.note}
-                              onToggle={onPanelToggle}
-                            />
-                            <ContactsCarousel
-                              contacts={output.contacts}
-                              query={input.query}
-                            />
-                          </Fragment>
-                        );
-                      }
-
-                      case 'tool-searchKb': {
-                        if (part.state !== 'output-available') return null;
-                        const { input, output } = part;
-                        return (
-                          <SearchKbPanel
-                            key={key}
-                            query={input.query}
-                            keyword={input.keyword}
-                            chunks={output.chunks}
-                            retrievedInMs={output.retrievedInMs}
-                            onToggle={onPanelToggle}
-                          />
-                        );
-                      }
-
-                      case 'tool-calculatePricing': {
-                        if (part.state !== 'output-available') return null;
-                        const { output } = part;
-                        return (
-                          <PricingCalculatorPanel
-                            key={key}
-                            toolCallId={part.toolCallId}
-                            product={output.product}
-                            bankRate={output.bankRate}
-                            asOf={output.asOf}
-                            isFallback={output.isFallback}
-                            savedQuote={savedPriceQuotes[part.toolCallId] ?? null}
-                            onSave={onSendMessage}
-                            onToggle={onPanelToggle}
-                          />
-                        );
-                      }
-
-                      case 'tool-searchMedia': {
-                        if (part.state !== 'output-available') return null;
-                        return (
-                          <MediaGalleryPanel key={key} images={part.output.images} />
-                        );
-                      }
-
-                      case 'tool-searchVideos': {
-                        if (part.state !== 'output-available') return null;
-                        return (
-                          <VideoGalleryPanel key={key} videos={part.output.videos} />
-                        );
-                      }
-                      default:
-                        return null;
-                    }
-                  })}
-                </MessageContent>
-                {message.role === 'assistant' && messageHasText(message) ? (
-                  <MessageFeedback
-                    messageId={message.id}
-                    text={getMessageText(message)}
-                    timestamp={timestamp ?? undefined}
-                    initialReaction={message.metadata?.reaction ?? null}
-                    initialNote={message.metadata?.reactionNote ?? null}
-                  />
-                ) : null}
-              </Message>
-              {/* Absolutely positioned just below the bubble's bottom-right
-                corner (pb-5 on the wrapper above reserves the room), same
-                hover behavior as the timestamp (always visible below lg,
-                hover-only at lg and up, off the same outer `group`). A
-                size and color step down from MessageFeedback's own row --
-                it's the only action here, not one of three, and sits
-                right under the bubble rather than needing to read as
-                clearly as a row of icons does. */}
-              {message.role === 'user' && messageHasText(message) ? (
-                <MessageActions className="absolute right-1 bottom-0 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100">
-                  <CopyMessageAction
-                    text={getMessageText(message)}
-                    size="icon-xs"
-                    iconClassName="size-3"
-                    className="text-muted-foreground"
-                  />
-                </MessageActions>
-              ) : null}
-            </div>
-          </MessageErrorBoundary>
-        );
-      })}
+      {messages.map((message) => (
+        <ConversationMessage
+          key={message.id}
+          message={message}
+          onPanelToggle={onPanelToggle}
+          onSendMessage={onSendMessage}
+          savedPriceQuotes={savedPriceQuotes}
+        />
+      ))}
       {showLoadingIndicator ? (
         <div className="flex gap-3">
           <EvaAvatar />
