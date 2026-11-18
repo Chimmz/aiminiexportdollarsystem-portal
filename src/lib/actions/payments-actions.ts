@@ -110,19 +110,6 @@ export async function initiatePlanPurchase(
   }
 }
 
-// TEMPORARY, same reasoning as mini-export-web's CHECKOUT_AMOUNT_NGN: every
-// in-app upgrade charges this flat ₦100 test amount while testing
-// end-to-end with real Flutterwave transactions, instead of each plan's
-// real price. upgrade-page-client.tsx's displayed card prices are
-// untouched -- they read tier.priceKobo straight from the `plans` prop
-// (plans-actions.ts), never through this constant. The payments row's own
-// amount_kobo is set to this same value, not the plan's real price,
-// because creditPayment refuses to credit unless the gateway's verified
-// amount matches amount_kobo exactly -- storing the real price here while
-// only ever charging ₦100 would make every upgrade fail verification.
-// Before launch: delete this and use plan.price_kobo again below.
-const FLUTTERWAVE_TEST_AMOUNT_KOBO = 10000; // ₦100
-
 // Flutterwave counterpart to initiatePlanPurchase above -- same pending-row-
 // first shape, same returnTo handling, same callback destinations. Kept as
 // a separate function rather than branching the one above on a gateway
@@ -154,7 +141,7 @@ export async function initiateFlutterwavePlanPurchase(
       plan_id: plan.id,
       payment_reference: reference,
       gateway: 'flutterwave',
-      amount_kobo: FLUTTERWAVE_TEST_AMOUNT_KOBO,
+      amount_kobo: plan.price_kobo,
       status: 'pending',
     })
     .select('id')
@@ -169,7 +156,7 @@ export async function initiateFlutterwavePlanPurchase(
       returnTo === 'mentor' ? '/dashboard/mentor' : '/dashboard/upgrade/callback';
     const { authorizationUrl } = await initializeFlutterwaveTransaction({
       email: user.email,
-      amountKobo: FLUTTERWAVE_TEST_AMOUNT_KOBO,
+      amountKobo: plan.price_kobo,
       reference,
       callbackUrl: `${siteOrigin}${callbackPath}`,
       metadata: { plan_id: plan.id, user_id: user.id },
