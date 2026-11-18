@@ -212,6 +212,7 @@ export function DashboardHomeClient({
                 value={accessStatus.trialTokensUsed}
                 max={accessStatus.trialTokenBudget}
                 label="of your free trial used"
+                size={112}
               />
             </CardContent>
           )}
@@ -248,7 +249,7 @@ export function DashboardHomeClient({
               <UsageLineChart
                 data={usage.history}
                 granularity={usage.granularity}
-                className="h-56 sm:h-64"
+                className="h-36 sm:h-40"
               />
             </CardContent>
           </Card>
