@@ -121,17 +121,93 @@ const REGION_KEYWORDS: Record<string, string> = {
   oceania: 'Oceania',
 };
 
+// Nigeria's 36 states + the FCT, paired with their capital/major city --
+// used only to WIDEN a Nigerian term the model passes through (see
+// resolveLocationTerm below), not to replace it. A local-supplier/
+// logistics/documentation row has its `state` and `city`/`place` columns
+// filled independently of each other -- some rows only have one -- so a
+// search for "Port Harcourt" also needs to try "Rivers" (the row might
+// only carry the state), and a search for "Rivers" also needs to try
+// "Port Harcourt" (the row might only carry the city). The bare state and
+// capital names aren't substrings of each other, so the bidirectional
+// substring check in contacts-utils.ts can't bridge this on its own --
+// that only handles one name with a suffix/prefix added to the other
+// (e.g. "Ogun" vs "Ogun State").
+const NIGERIA_STATE_CAPITALS: Record<string, string> = {
+  Abia: 'Umuahia',
+  Adamawa: 'Yola',
+  'Akwa Ibom': 'Uyo',
+  Anambra: 'Awka',
+  Bauchi: 'Bauchi',
+  Bayelsa: 'Yenagoa',
+  Benue: 'Makurdi',
+  Borno: 'Maiduguri',
+  'Cross River': 'Calabar',
+  Delta: 'Asaba',
+  Ebonyi: 'Abakaliki',
+  Edo: 'Benin City',
+  Ekiti: 'Ado Ekiti',
+  Enugu: 'Enugu',
+  Gombe: 'Gombe',
+  Imo: 'Owerri',
+  Jigawa: 'Dutse',
+  Kaduna: 'Kaduna',
+  Kano: 'Kano',
+  Katsina: 'Katsina',
+  Kebbi: 'Birnin Kebbi',
+  Kogi: 'Lokoja',
+  Kwara: 'Ilorin',
+  Lagos: 'Ikeja',
+  Nasarawa: 'Lafia',
+  Niger: 'Minna',
+  Ogun: 'Abeokuta',
+  Ondo: 'Akure',
+  Osun: 'Osogbo',
+  Oyo: 'Ibadan',
+  Plateau: 'Jos',
+  Rivers: 'Port Harcourt',
+  Sokoto: 'Sokoto',
+  Taraba: 'Jalingo',
+  Yobe: 'Damaturu',
+  Zamfara: 'Gusau',
+  'Federal Capital Territory': 'Abuja',
+};
+
+// Built once off NIGERIA_STATE_CAPITALS itself, never hand-written --
+// a hand-written reverse table is exactly the kind of place a typo would
+// hide. Lets a mention of the bare capital ("Port Harcourt", "Abuja")
+// resolve back to its state the same way a state name resolves forward.
+const NIGERIA_CAPITAL_TO_STATE: Record<string, string> = Object.fromEntries(
+  Object.entries(NIGERIA_STATE_CAPITALS).map(([state, capital]) => [
+    capital.toLowerCase(),
+    state,
+  ])
+);
+
+function resolveNigeriaStateOrCapital(lower: string): string[] | null {
+  const stateMatch = Object.keys(NIGERIA_STATE_CAPITALS).find(
+    (state) => state.toLowerCase() === lower
+  );
+  if (stateMatch) return [stateMatch, NIGERIA_STATE_CAPITALS[stateMatch]];
+
+  const state = NIGERIA_CAPITAL_TO_STATE[lower];
+  if (state) return [NIGERIA_STATE_CAPITALS[state], state];
+
+  return null;
+}
+
 // One raw location term (whatever the model passed straight through from
 // the user's own wording) resolved against the real, current
 // knownCountries list -- a region keyword expands to every matching known
 // country, a recognized alias/abbreviation resolves to its canonical
 // DB-stored name, an exact (case-insensitive) country match is
-// canonicalized, and anything else (a Nigerian state or city, e.g.
-// "Lagos") passes through completely unchanged, since those are matched
-// as free-text substrings against state/city fields elsewhere, not
-// against this country list at all. This is what replaced asking the
-// model to do all of this itself from a country list embedded in the
-// tool schema -- see search-contacts-tool.ts.
+// canonicalized, a recognized Nigerian state or capital/major city
+// expands to BOTH (see NIGERIA_STATE_CAPITALS above -- a row might only
+// carry one of the two), and anything else passes through completely
+// unchanged, matched as a free-text substring against state/city fields
+// elsewhere. This is what replaced asking the model to do all of this
+// itself from a country list embedded in the tool schema -- see
+// search-contacts-tool.ts.
 export function resolveLocationTerm(term: string, knownCountries: string[]): string[] {
   const trimmed = term.trim();
   if (!trimmed) return [];
@@ -149,6 +225,9 @@ export function resolveLocationTerm(term: string, knownCountries: string[]): str
 
   const exactMatch = knownCountries.find((country) => country.toLowerCase() === lower);
   if (exactMatch) return [exactMatch];
+
+  const nigeria = resolveNigeriaStateOrCapital(lower);
+  if (nigeria) return nigeria;
 
   return [trimmed];
 }
