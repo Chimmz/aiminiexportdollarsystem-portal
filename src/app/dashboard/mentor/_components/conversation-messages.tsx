@@ -62,12 +62,30 @@ function messageHasText(message: AppMessage): boolean {
 // of now-adjacent text parts into one lets them flow as a single
 // paragraph block instead, the same as if the model had just written it
 // all in one go.
+//
+// `step-start` (ai's own StepStartUIPart) is the thing that actually kept
+// defeating that merge: every tool call that triggers a further model
+// step -- which a searchMedia/searchVideos call always does, since the
+// model still has to write (or finish) the surrounding reply -- gets a
+// `{ type: 'step-start' }` boundary part on the far side of it, so the
+// real sequence is [text1, tool-searchMedia, step-start, text2], not
+// [text1, tool-searchMedia, text2]. It renders as nothing either way (the
+// switch below's default case), but left in `rest` it still sits between
+// text1 and text2 and breaks the `prev?.type === 'text'` adjacency check,
+// so the two text parts stayed two separate <MessageResponse> blocks --
+// the exact double-gap this comment already claimed to have fixed.
+// Dropping step-start here instead of letting it fall through to the
+// default case removes that wedge with no visible difference, since
+// nothing ever rendered for it anyway.
 function normalizeParts(parts: AppMessage['parts']): AppMessage['parts'] {
   const media = parts.filter(
     (part) => part.type === 'tool-searchMedia' || part.type === 'tool-searchVideos'
   );
   const rest = parts.filter(
-    (part) => part.type !== 'tool-searchMedia' && part.type !== 'tool-searchVideos'
+    (part) =>
+      part.type !== 'tool-searchMedia' &&
+      part.type !== 'tool-searchVideos' &&
+      part.type !== 'step-start'
   );
 
   const merged: AppMessage['parts'] = [];
