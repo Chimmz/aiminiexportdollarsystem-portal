@@ -33,8 +33,20 @@ export const ALL_CONTACT_TYPES: ContactType[] = [
 // today's size.
 export const FETCH_CAP = 2000;
 
+// One-directional containment (haystack.includes(needle)) assumes the
+// search term is always the shorter/bare form -- true for "Lagos" against
+// a field storing "Lagos State", but breaks the moment the model passes
+// the longer form instead (e.g. "Ogun State" against a field that just
+// stores "Ogun"): the DB value no longer contains the needle, even though
+// it's obviously the same place. Checking both directions covers either
+// side appending/dropping a suffix like "State" without needing a real
+// alias table for all 36 states -- the DB-stored forms are already bare
+// state/city names, the model's wording is the only side that varies.
 function includesCaseInsensitive(haystack: string | null, needle: string): boolean {
-  return Boolean(haystack) && haystack!.toLowerCase().includes(needle.toLowerCase());
+  if (!haystack) return false;
+  const h = haystack.toLowerCase();
+  const n = needle.toLowerCase();
+  return h.includes(n) || n.includes(h);
 }
 
 function matchesAny(fields: (string | null)[], needle: string): boolean {
