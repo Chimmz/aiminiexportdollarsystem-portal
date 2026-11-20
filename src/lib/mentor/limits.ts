@@ -15,9 +15,9 @@
 // fresh every single turn), which is what the old trial_messages_limit
 // (10 messages, dropped from `users` in migrations/0014) was
 // approximating by message count instead.
-// Reverted back down from a temporary 500k bump now that the "for the
-// moment" reason for it has passed (originally 300k, then 200k).
-export const TRIAL_TOKEN_BUDGET = 200_000;
+// Bumped back up to 500k for now (originally 300k, then 200k, briefly
+// reverted to 200k before this).
+export const TRIAL_TOKEN_BUDGET = 500_000;
 
 // RATE_LIMIT_WINDOW_HOURS / RATE_LIMIT_TOKENS_*: a separate, rolling-window
 // abuse limit that applies to trial AND paid users alike -- protects the
