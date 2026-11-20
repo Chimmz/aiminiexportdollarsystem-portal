@@ -55,7 +55,7 @@ export function MediaGalleryPanel({ images }: { images: MediaGalleryImage[] }) {
                     alt={image.label}
                     fill
                     sizes="144px"
-                    className="object-cover transition-transform duration-200 group-hover:scale-105"
+                    className="object-contain transition-transform duration-200 group-hover:scale-105"
                     skeletonClassName="bg-gray-200"
                   />
                 </button>
