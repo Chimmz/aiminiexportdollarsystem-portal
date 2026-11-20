@@ -169,7 +169,7 @@ export function MentorChatClient({
 
   const { setHasMessages, bumpUsageVersion } = useMentorChatState();
 
-  const { messages, sendMessage, regenerate, status, setMessages } = useChat<AppMessage>({
+  const { messages, sendMessage, regenerate, status, error, setMessages } = useChat<AppMessage>({
     messages: initialMessages,
     transport: new DefaultChatTransport({
       api: '/api/mentor/chat',
@@ -238,6 +238,32 @@ export function MentorChatClient({
       );
     },
   });
+
+  // Which user message (if any) gets a persistent regenerate icon under
+  // it -- see conversation-messages.tsx's own RegenerateMessageAction.
+  // Deliberately narrower than "status === 'error'" alone: a dropped
+  // connection (statusCode == null, the onError branch above that shows
+  // "Couldn't reach the server...") is usually gone by the time someone
+  // would click a persistent icon anyway, and the app's own 402 (access
+  // limit) / 429 (rate limit) cases already have their own dedicated UI
+  // (AccessLimitBar, a toast) that a bare "try again" would just fail
+  // against immediately. This is for the remaining case -- the request
+  // reached the server and something there actually failed (a Gateway or
+  // model error, e.g. the AI Gateway account running out of credits) --
+  // which deserves a lasting way to retry, not just the toast the same
+  // onError branch already fires once and that can be missed or dismissed.
+  // The target message is simply the most recent user message still in
+  // the list: a failure this early never got as far as adding an
+  // assistant message at all, so it's always the last real thing sent.
+  const statusCode =
+    error && 'statusCode' in error
+      ? (error as { statusCode?: number }).statusCode
+      : undefined;
+  const canRegenerateLastTurn =
+    status === 'error' && statusCode != null && statusCode !== 402 && statusCode !== 429;
+  const regenerateMessageId = canRegenerateLastTurn
+    ? ([...messages].reverse().find((m) => m.role === 'user')?.id ?? null)
+    : null;
 
   // Handed down to MentorControlsRail, which lives as this component's
   // sibling (see the two returns below) rather than a descendant -- the
@@ -551,6 +577,8 @@ export function MentorChatClient({
               onPanelToggle={handlePanelToggle}
               onSendMessage={sendUserMessage}
               savedPriceQuotes={savedPriceQuotes}
+              regenerateMessageId={regenerateMessageId}
+              onRegenerate={regenerate}
             />
           </ConversationContent>
           <ConversationScrollButton />

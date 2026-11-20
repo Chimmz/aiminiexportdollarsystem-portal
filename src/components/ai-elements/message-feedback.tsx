@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckIcon, CopyIcon, HeartIcon, ThumbsDownIcon } from 'lucide-react';
+import { CheckIcon, CopyIcon, HeartIcon, RotateCcwIcon, ThumbsDownIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -74,6 +74,37 @@ export function CopyMessageAction({
       className={className}
     >
       {copied ? <CheckIcon className={iconClassName} /> : <CopyIcon className={iconClassName} />}
+    </MessageAction>
+  );
+}
+
+// Shown only on the one user message whose turn just failed with a real
+// (non-network) error -- see mentor-chat-client.tsx's regenerateMessageId
+// for exactly which errors qualify. A dropped connection already gets its
+// own toast ("Couldn't reach the server...") that goes away on its own;
+// this is for the other kind, where the request reached the server and
+// something there actually failed (a Gateway/model error, e.g.), which
+// deserves a lasting way to retry right under the message that triggered
+// it, not just a toast someone can miss or dismiss before they're ready.
+export function RegenerateMessageAction({
+  onRegenerate,
+  size = 'icon-sm',
+  iconClassName = 'size-3.5',
+  className,
+}: {
+  onRegenerate: () => void;
+  size?: React.ComponentProps<typeof MessageAction>['size'];
+  iconClassName?: string;
+  className?: string;
+}) {
+  return (
+    <MessageAction
+      tooltip="Regenerate"
+      onClick={onRegenerate}
+      size={size}
+      className={className}
+    >
+      <RotateCcwIcon className={iconClassName} />
     </MessageAction>
   );
 }

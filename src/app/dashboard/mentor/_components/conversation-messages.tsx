@@ -11,6 +11,7 @@ import {
 import {
   CopyMessageAction,
   MessageFeedback,
+  RegenerateMessageAction,
 } from '@/components/ai-elements/message-feedback';
 import { MessageErrorBoundary } from '@/components/ai-elements/message-error-boundary';
 import { Container } from '@/components/layout/container';
@@ -143,6 +144,12 @@ interface ConversationMessagesProps {
   // whose calculator was already finished and saved renders that saved
   // result on reload instead of a blank calculator.
   savedPriceQuotes: Record<string, SavedPriceQuote>;
+  // The one user message whose turn just failed with a real (non-network)
+  // error, if any -- see mentor-chat-client.tsx for exactly how this is
+  // derived. Null the rest of the time, including while a request is still
+  // in flight or once it's succeeded.
+  regenerateMessageId: string | null;
+  onRegenerate: () => void;
 }
 
 // Pulled out of ConversationMessages' own .map() so useMessageTimestamp
@@ -155,11 +162,15 @@ function ConversationMessage({
   onPanelToggle,
   onSendMessage,
   savedPriceQuotes,
+  regenerateMessageId,
+  onRegenerate,
 }: {
   message: AppMessage;
   onPanelToggle: () => void;
   onSendMessage: (text: string) => void;
   savedPriceQuotes: Record<string, SavedPriceQuote>;
+  regenerateMessageId: string | null;
+  onRegenerate: () => void;
 }) {
   const timestamp = useMessageTimestamp(message.metadata?.createdAt);
 
@@ -270,11 +281,29 @@ function ConversationMessage({
           hover behavior as the timestamp (always visible below lg,
           hover-only at lg and up, off the same outer `group`). A
           size and color step down from MessageFeedback's own row --
-          it's the only action here, not one of three, and sits
+          it's normally the only action here, not one of three, and sits
           right under the bubble rather than needing to read as
-          clearly as a row of icons does. */}
+          clearly as a row of icons does. The hover-only treatment is
+          dropped for this one message, though, when its turn just failed
+          with a real error -- see below -- since that's not a convenience
+          action worth hiding until hover, it's the only way to retry. */}
         {message.role === 'user' && messageHasText(message) ? (
-          <MessageActions className="absolute right-1 bottom-0 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100">
+          <MessageActions
+            className={cn(
+              'absolute right-1 bottom-0',
+              message.id === regenerateMessageId
+                ? undefined
+                : 'lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100'
+            )}
+          >
+            {message.id === regenerateMessageId ? (
+              <RegenerateMessageAction
+                onRegenerate={onRegenerate}
+                size="icon-xs"
+                iconClassName="size-3"
+                className="text-muted-foreground"
+              />
+            ) : null}
             <CopyMessageAction
               text={getMessageText(message)}
               size="icon-xs"
@@ -294,6 +323,8 @@ export function ConversationMessages({
   onPanelToggle,
   onSendMessage,
   savedPriceQuotes,
+  regenerateMessageId,
+  onRegenerate,
 }: ConversationMessagesProps) {
   return (
     <Container className="flex flex-col">
@@ -304,6 +335,8 @@ export function ConversationMessages({
           onPanelToggle={onPanelToggle}
           onSendMessage={onSendMessage}
           savedPriceQuotes={savedPriceQuotes}
+          regenerateMessageId={regenerateMessageId}
+          onRegenerate={onRegenerate}
         />
       ))}
       {showLoadingIndicator ? (
