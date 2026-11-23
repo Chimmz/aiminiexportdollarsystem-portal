@@ -372,77 +372,128 @@ export function MentorControlsRail({
             ) : null}
           </div>
 
-          {/* Read-only -- see getProductAndCountryProgress's own comment
-              on why these two live in journey_setup_progress, not
-              profile_facts, and why "deleting" one doesn't make sense
-              the way it does for a loose fact. */}
-          {journeyFields && journeyFields.length > 0 && (
-            <>
-              <ul className="space-y-1.5">
-                {journeyFields.map((field) => (
-                  <li
-                    key={field.key}
-                    className="rounded-lg border border-border bg-background px-3 py-2"
-                  >
-                    <p className="text-xs font-medium text-foreground">
-                      {field.key === 'product' ? 'Export product' : 'Target market'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {field.detail ??
-                        (field.status === 'not_started'
-                          ? 'Not decided yet'
-                          : statusLabel(field.status))}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-              {/* Only separates this block from the facts list below it --
-                  skip it when there's nothing there (no facts, see the
-                  empty-state condition right below) to separate from. */}
-              {facts && facts.length > 0 && <Separator />}
-            </>
-          )}
+          {/* Everything below the header shares one scroll container
+              (rather than a fixed max-h only around the facts <ul>, with
+              the add-memory form left to the ambient page scroll) -- the
+              facts list has no natural cap on how long it gets, and the
+              old per-list max-h-72 never accounted for the add-fact form
+              rendered after it, so a long enough list could push the Save
+              button past the bottom of the rail with nothing below it
+              able to scroll that far. One ScrollArea sized to the
+              remaining flex space means the Save button is always inside
+              the same scrollable region as the list above it. */}
+          <ScrollArea className="-mx-1 min-h-0 flex-1 px-1">
+            <div className="flex flex-col gap-2">
+              {/* Read-only -- see getProductAndCountryProgress's own
+                  comment on why these two live in journey_setup_progress,
+                  not profile_facts, and why "deleting" one doesn't make
+                  sense the way it does for a loose fact. */}
+              {journeyFields && journeyFields.length > 0 && (
+                <>
+                  <ul className="space-y-1.5">
+                    {journeyFields.map((field) => (
+                      <li
+                        key={field.key}
+                        className="rounded-lg border border-border bg-background px-3 py-2"
+                      >
+                        <p className="text-xs font-medium text-foreground">
+                          {field.key === 'product' ? 'Export product' : 'Target market'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {field.detail ??
+                            (field.status === 'not_started'
+                              ? 'Not decided yet'
+                              : statusLabel(field.status))}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                  {/* Only separates this block from the facts list below
+                      it -- skip it when there's nothing there (no facts,
+                      see the empty-state condition right below) to
+                      separate from. */}
+                  {facts && facts.length > 0 && <Separator />}
+                </>
+              )}
 
-          {facts === null ? (
-            <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
-              <Spinner className="size-3.5" />
-              Loading memory...
-            </div>
-          ) : facts.length === 0 && (!journeyFields || journeyFields.length === 0) ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-4 py-6 text-center">
-              <Brain className="size-5 text-muted-foreground/60" />
-              <p className="text-xs text-muted-foreground">
-                Nothing saved yet — Eva fills this in as you chat.
-              </p>
-            </div>
-          ) : facts.length > 0 ? (
-            <ScrollArea className="-mx-1 max-h-72">
-              <ul className="space-y-1.5 px-1">
-                {facts.map((fact) => (
-                  <li
-                    key={fact.factType}
-                    className="group flex items-start justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium text-foreground">
-                        {fact.factType.replace(/_/g, ' ')}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{fact.factValue}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setFactPendingDelete(fact)}
-                      disabled={busyFactType === fact.factType}
-                      aria-label={`Forget ${fact.factType}`}
-                      className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive disabled:opacity-50"
+              {facts === null ? (
+                <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
+                  <Spinner className="size-3.5" />
+                  Loading memory...
+                </div>
+              ) : facts.length === 0 && (!journeyFields || journeyFields.length === 0) ? (
+                <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-4 py-6 text-center">
+                  <Brain className="size-5 text-muted-foreground/60" />
+                  <p className="text-xs text-muted-foreground">
+                    Nothing saved yet — Eva fills this in as you chat.
+                  </p>
+                </div>
+              ) : facts.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {facts.map((fact) => (
+                    <li
+                      key={fact.factType}
+                      className="group flex items-start justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2"
                     >
-                      <X className="size-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </ScrollArea>
-          ) : null}
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground">
+                          {fact.factType.replace(/_/g, ' ')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{fact.factValue}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFactPendingDelete(fact)}
+                        disabled={busyFactType === fact.factType}
+                        aria-label={`Forget ${fact.factType}`}
+                        className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive disabled:opacity-50"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {adding ? (
+                <div className="space-y-2 rounded-xl border border-border bg-background p-3">
+                  <Input
+                    placeholder="e.g. preferred_market"
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                  <Input
+                    placeholder="e.g. United States"
+                    value={newValue}
+                    onChange={(e) => setNewValue(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleAdd}
+                      disabled={!newType.trim() || !newValue.trim()}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 py-2.5 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/5"
+                >
+                  <Plus className="size-3.5" />
+                  Add a memory
+                </button>
+              )}
+            </div>
+          </ScrollArea>
 
           <Dialog
             open={factPendingDelete !== null}
@@ -475,44 +526,6 @@ export function MentorControlsRail({
               </DialogFooter>
             </DialogContent>
           </Dialog>
-
-          {adding ? (
-            <div className="space-y-2 rounded-xl border border-border bg-background p-3">
-              <Input
-                placeholder="e.g. preferred_market"
-                value={newType}
-                onChange={(e) => setNewType(e.target.value)}
-                className="h-8 text-xs"
-              />
-              <Input
-                placeholder="e.g. United States"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                className="h-8 text-xs"
-              />
-              <div className="flex justify-end gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleAdd}
-                  disabled={!newType.trim() || !newValue.trim()}
-                >
-                  Save
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 py-2.5 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/5"
-            >
-              <Plus className="size-3.5" />
-              Add a memory
-            </button>
-          )}
         </div>
     </div>
   );
