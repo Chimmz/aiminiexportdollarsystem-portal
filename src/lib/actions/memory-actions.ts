@@ -1,7 +1,15 @@
+import { embed } from 'ai';
 import { createServiceClient } from '@/lib/supabase/service';
+import { embeddingModel } from '@/lib/ai/models';
+import { PROFILE_FACTS_RECALL_LIMIT } from '@/lib/mentor/limits';
 import { getFullExportJourneyProgress } from './journey-actions';
 import type { ExportScale } from '@/lib/utils/journey-utils';
 import type { ProfileFact, UserMemory } from '@/lib/utils/memory-utils';
+
+// Sources that are always included in full, never subject to the
+// semantic-recall cap below -- see PROFILE_FACTS_RECALL_LIMIT's own
+// comment for why.
+const ALWAYS_INCLUDED_SOURCES: ProfileFact['source'][] = ['intake', 'user_provided'];
 
 // Default until the user's own export_scale fact says otherwise -- this
 // course's main focus (see config.ts's PRODUCT CONTEXT), not a guess.
@@ -37,6 +45,19 @@ export async function getProfileFacts(userId: string): Promise<ProfileFact[]> {
 // source defaults to the model's own extraction path; the chat-controls
 // rail's manual "add a fact" form is the only other caller, passing
 // 'user_provided' instead (see memory-utils.ts's ProfileFact['source']).
+// Embedded as "factType: factValue" -- the exact shape formatMemoryForPrompt
+// (memory-utils.ts) renders each fact as, so what's matched against is
+// what Eva would actually see. Written for every fact regardless of
+// source, even though only 'chat_extracted' ones are ever looked up by
+// it (match_profile_facts, migrations/0032) -- simpler than branching
+// this write path by source for a cost that only ever happens when a
+// fact is actually written, far rarer than the per-turn read this
+// supports.
+async function embedFact(factType: string, factValue: string): Promise<number[]> {
+  const { embedding } = await embed({ model: embeddingModel, value: `${factType}: ${factValue}` });
+  return embedding;
+}
+
 export async function upsertProfileFact(
   userId: string,
   factType: string,
@@ -45,6 +66,7 @@ export async function upsertProfileFact(
   source: ProfileFact['source'] = 'chat_extracted'
 ): Promise<void> {
   const supabase = createServiceClient();
+  const embedding = await embedFact(factType, factValue);
   const { error } = await supabase.from('profile_facts').upsert(
     {
       user_id: userId,
@@ -52,6 +74,7 @@ export async function upsertProfileFact(
       fact_value: factValue,
       confidence,
       source,
+      embedding,
     },
     { onConflict: 'user_id,fact_type' }
   );
@@ -98,4 +121,58 @@ export async function getUserMemory(userId: string): Promise<UserMemory> {
   const scale: ExportScale = scaleFact === 'large' ? 'large' : DEFAULT_EXPORT_SCALE;
   const exportJourneyProgress = await getFullExportJourneyProgress(userId, scale);
   return { facts, exportJourneyProgress };
+}
+
+// The system-prompt-only variant of getUserMemory above -- that one stays
+// exactly as it was (every fact, unbounded) because it also backs the
+// chat-controls rail's Memory section (/api/mentor/memory, dashboard/
+// mentor/page.tsx's initialFacts): a user managing or deleting a fact
+// needs to see all of them, not a recalled subset. This one is for
+// route.ts's buildSystemPrompt call only, where sending every fact every
+// turn is exactly the unbounded per-turn cost PROFILE_FACTS_RECALL_LIMIT's
+// own comment (limits.ts) describes. 'intake'/user_provided facts are
+// never recalled away; 'chat_extracted' ones are semantically ranked
+// against recallQueryText (the current turn's own message) and capped --
+// skipped entirely, no embed/RPC round trip, when there aren't even
+// PROFILE_FACTS_RECALL_LIMIT of them to begin with.
+export async function getUserMemoryForPrompt(
+  userId: string,
+  recallQueryText: string
+): Promise<UserMemory> {
+  const memory = await getUserMemory(userId);
+
+  const alwaysIncluded = memory.facts.filter((f) =>
+    ALWAYS_INCLUDED_SOURCES.includes(f.source)
+  );
+  const recallable = memory.facts.filter(
+    (f) => !ALWAYS_INCLUDED_SOURCES.includes(f.source)
+  );
+
+  if (recallable.length <= PROFILE_FACTS_RECALL_LIMIT) {
+    return memory;
+  }
+
+  const supabase = createServiceClient();
+  const { embedding } = await embed({ model: embeddingModel, value: recallQueryText });
+  const { data, error } = await supabase.rpc('match_profile_facts', {
+    p_user_id: userId,
+    query_embedding: embedding,
+    match_count: PROFILE_FACTS_RECALL_LIMIT,
+  });
+  if (error) throw new Error(`match profile facts: ${error.message}`);
+
+  type MatchProfileFactsRow = {
+    fact_type: string;
+    fact_value: string;
+    confidence: number | null;
+    source: string;
+  };
+  const recalled: ProfileFact[] = ((data ?? []) as MatchProfileFactsRow[]).map((row) => ({
+    factType: row.fact_type,
+    factValue: row.fact_value,
+    confidence: row.confidence,
+    source: row.source as ProfileFact['source'],
+  }));
+
+  return { ...memory, facts: [...alwaysIncluded, ...recalled] };
 }

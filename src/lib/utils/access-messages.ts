@@ -6,3 +6,5 @@ export const ACCESS_EXPIRED_MESSAGE =
   'Your access has expired. Upgrade to keep chatting with Eva.';
 export const TRIAL_BUDGET_EXHAUSTED_MESSAGE =
   "You've used up your free trial with Eva. Upgrade to keep the conversation going.";
+export const USAGE_CEILING_EXHAUSTED_MESSAGE =
+  "You've used an unusually high amount of this period's chat with Eva. Renew early to keep going right now.";

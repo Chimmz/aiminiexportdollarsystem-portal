@@ -9,12 +9,15 @@ import {
 import {
   ACCESS_EXPIRED_MESSAGE,
   TRIAL_BUDGET_EXHAUSTED_MESSAGE,
+  USAGE_CEILING_EXHAUSTED_MESSAGE,
 } from '@/lib/utils/access-messages';
 import {
   RATE_LIMIT_TOKENS_PAID,
   RATE_LIMIT_TOKENS_TRIAL,
   RATE_LIMIT_WINDOW_HOURS,
   TRIAL_TOKEN_BUDGET,
+  USAGE_CEILING_TOKENS_PAID,
+  USAGE_CEILING_WINDOW_HOURS,
 } from '@/lib/mentor/limits';
 
 // Swaps a searchContacts tool result's real ContactCard[] (names, phones,
@@ -68,18 +71,25 @@ function formatRetryAfter(seconds: number): string {
   return `${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
-// The gate route.ts runs before ever calling streamText -- two
+// The gate route.ts runs before ever calling streamText -- three
 // independent checks, not one (see config.ts's TRIAL_TOKEN_BUDGET/
-// RATE_LIMIT_* comments for why they're separate):
+// RATE_LIMIT_*/USAGE_CEILING_* comments for why they're separate):
 //
 // 1. A trial user's lifetime token budget, which never resets -- once
 //    it's gone, upgrading is the only way to keep chatting.
-// 2. A rolling-window abuse rate limit, which applies to trial AND paid
+// 2. A paid user's 30-day outlier usage ceiling (USAGE_CEILING_* in
+//    limits.ts) -- sized to only ever catch genuine outliers, never
+//    typical bursty studying, so this should be rare in practice. 402,
+//    like the trial case, since "wait it out" would be misleading at a
+//    30-day window -- renewing early is the real way out.
+// 3. A rolling-window abuse rate limit, which applies to trial AND paid
 //    users alike and does reset once the oldest usage inside the window
-//    ages out.
+//    ages out. Checked last since it's the least specific signal -- a
+//    user already caught by #2 shouldn't be told to just "try again in
+//    3 hours" when the real ceiling they hit won't lift that soon.
 //
 // An 'expired' user (trial budget exhausted in a previous request, or a
-// paid access period that's lapsed) is blocked outright, before either
+// paid access period that's lapsed) is blocked outright, before any
 // check runs -- there's nothing to rate-limit for someone who shouldn't
 // be chatting at all. `response` is null when the request should proceed.
 //
@@ -98,13 +108,23 @@ export async function checkMentorChatLimits(
     return { response: new Response(ACCESS_EXPIRED_MESSAGE, { status: 402 }), tier };
   }
 
-  const [lifetimeTokens, rateLimit] = await Promise.all([
+  const [lifetimeTokens, usageCeiling, rateLimit] = await Promise.all([
     tier === 'trial' ? getLifetimeTokenUsage(userId) : Promise.resolve(0),
+    tier === 'active'
+      ? getRollingWindowTokenUsage(userId, USAGE_CEILING_WINDOW_HOURS)
+      : Promise.resolve(null),
     getRollingWindowTokenUsage(userId, RATE_LIMIT_WINDOW_HOURS),
   ]);
 
   if (tier === 'trial' && lifetimeTokens >= TRIAL_TOKEN_BUDGET) {
     return { response: new Response(TRIAL_BUDGET_EXHAUSTED_MESSAGE, { status: 402 }), tier };
+  }
+
+  if (tier === 'active' && usageCeiling && usageCeiling.tokens >= USAGE_CEILING_TOKENS_PAID) {
+    return {
+      response: new Response(USAGE_CEILING_EXHAUSTED_MESSAGE, { status: 402 }),
+      tier,
+    };
   }
 
   const rateLimitCeiling =

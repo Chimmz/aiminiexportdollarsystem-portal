@@ -294,9 +294,20 @@ export function formatFullExportJourneyProgressForPrompt(
     (a, b) => Date.parse(b.lastActiveAt) - Date.parse(a.lastActiveAt)
   );
 
+  // Full step-by-step detail only for the most recently active deals --
+  // a user juggling many products at once (each with its own full
+  // breakdown, previously shown for every single one) was the one truly
+  // unbounded part of this prompt block. Any deal past the cap still
+  // shows, just compactly (one line, no step detail) like pastDeals
+  // already does -- still active, not finished, so it's labeled that
+  // way rather than folded into "Past deals" below.
+  const FULL_DETAIL_DEAL_LIMIT = 2;
+  const detailedDeals = sortedActiveDeals.slice(0, FULL_DETAIL_DEAL_LIMIT);
+  const summarizedDeals = sortedActiveDeals.slice(FULL_DETAIL_DEAL_LIMIT);
+
   const dealsBlock =
-    sortedActiveDeals.length > 0
-      ? sortedActiveDeals
+    detailedDeals.length > 0
+      ? detailedDeals
           .map((deal, dealIndex) => {
             const lines = dealStepDefs
               .map((step, i) => {
@@ -311,6 +322,11 @@ export function formatFullExportJourneyProgressForPrompt(
           .join('\n')
       : '(none in progress)';
 
+  const summarizedLine =
+    summarizedDeals.length > 0
+      ? `\n\nAlso active, not detailed above (ask or call the deal's own tools if you need specifics): ${summarizedDeals.map((d) => d.product).join(', ')}`
+      : '';
+
   const pastLine =
     progress.pastDeals.length > 0
       ? progress.pastDeals.map((d) => `${d.product} (${d.status})`).join(', ')
@@ -320,7 +336,7 @@ export function formatFullExportJourneyProgressForPrompt(
   return (
     `Export scale: ${scaleLabel}\n\n` +
     `Getting started (one-time, done once ever, before their first deal):\n${setupLines}\n\n` +
-    `Deals in progress (each tracked separately by its own product -- there can be more than one at once, and a status update about one never affects another), most recently active first; the first one is tagged [Current deal] since it's the likeliest match if the user says "my deal" without naming a product. Name the product when leading them to a next step, since they may have more than one going:\n${dealsBlock}` +
+    `Deals in progress (each tracked separately by its own product -- there can be more than one at once, and a status update about one never affects another), most recently active first; the first one is tagged [Current deal] since it's the likeliest match if the user says "my deal" without naming a product. Name the product when leading them to a next step, since they may have more than one going:\n${dealsBlock}${summarizedLine}` +
     (pastLine ? `\n\nPast deals: ${pastLine}` : '')
   );
 }

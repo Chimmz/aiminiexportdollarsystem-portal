@@ -12,7 +12,7 @@ import { chatModel } from '@/lib/ai/models';
 import { getTools } from '@/lib/ai/tools';
 import { getCurrentUserFirstName } from '@/lib/utils/user-utils';
 import { getCurrentUser } from '@/lib/actions/user-actions';
-import { getUserMemory } from '@/lib/actions/memory-actions';
+import { getUserMemoryForPrompt } from '@/lib/actions/memory-actions';
 import { hasNoMemory } from '@/lib/utils/memory-utils';
 import {
   clearMentorMessages,
@@ -134,7 +134,7 @@ export async function POST(req: Request) {
   // extractAndUpdateMemory below needs as "what's already known" once the
   // turn finishes.
   const [userMemory, tools] = await Promise.all([
-    getUserMemory(user.id),
+    getUserMemoryForPrompt(user.id, getMessageText(message)),
     getTools(modelMessages),
     user.activatedAt ? Promise.resolve() : activateUserOnFirstMessage(user.id),
   ]);
@@ -174,6 +174,15 @@ export async function POST(req: Request) {
     onError: ({ error }) => {
       console.error('[mentor] streamText error:', error);
     },
+    // Without this, the Gateway has no reason to route this turn's
+    // several steps (and this user's next turn) to the same upstream
+    // backend that's actually holding the cached system-prompt+tools
+    // prefix -- a cache miss on a byte-identical prefix just from
+    // landing on a different instance, not from the prefix itself being
+    // ineligible. Keyed by user id, not conversation/session id, so a
+    // returning user's *next* turn (not just this turn's own steps) has
+    // a shot at the same cache too.
+    headers: { 'x-session-affinity': user.id },
   });
 
   return createUIMessageStreamResponse({
@@ -219,7 +228,14 @@ export async function POST(req: Request) {
             toolCalls: step.toolCalls.map((call) => call?.toolName),
             inputTokens: step.usage.inputTokens,
             cacheReadTokens: step.usage.inputTokenDetails?.cacheReadTokens,
+            cacheWriteTokens: step.usage.inputTokenDetails?.cacheWriteTokens,
             outputTokens: step.usage.outputTokens,
+            // gpt-5 is a reasoning model -- outputTokens alone can't tell
+            // a genuinely long visible reply apart from invisible
+            // reasoning tokens billed as output. Split out so a spike is
+            // actually diagnosable instead of just "output went up."
+            textTokens: step.usage.outputTokenDetails?.textTokens,
+            reasoningTokens: step.usage.outputTokenDetails?.reasoningTokens,
           })),
           totalInputTokens: usage.inputTokens,
           totalOutputTokens: usage.outputTokens,
