@@ -124,10 +124,16 @@ async function searchLocalSuppliers(
     .map(toLocalSupplierCard);
 }
 
-async function searchLogistics(
-  query: string,
-  locations: string[] | null
-): Promise<ContactCard[]> {
+// Deliberately never filtered by location, unlike the other three
+// directories -- most rows here either ship nationwide or simply never
+// recorded a state/place at all, and a null field can never satisfy
+// matchesAnyLocation (see that function's own comment), so applying the
+// usual location filter would silently drop most of this directory the
+// moment a user names a city. Searching it nationwide every time is the
+// correct behavior for this data, not a fallback -- each card still
+// carries whatever location it does have (toLogisticsCard), so nothing is
+// hidden from the model or the UI.
+async function searchLogistics(query: string): Promise<ContactCard[]> {
   const supabase = createServiceClient();
   let q = supabase
     .from('shipping_logistics_contacts')
@@ -144,9 +150,7 @@ async function searchLogistics(
   const { data, error } = await q.limit(FETCH_CAP);
   if (error) throw new Error(`logistics contacts: ${error.message}`);
 
-  return (data ?? [])
-    .filter((row) => matchesAnyLocation([row.state, row.place], locations))
-    .map(toLogisticsCard);
+  return (data ?? []).map(toLogisticsCard);
 }
 
 async function searchDocumentation(
@@ -187,7 +191,7 @@ async function runSearch(
     international_buyers_of_food_products: () => searchIntlBuyers(query, locations),
     local_raw_processed_food_product_suppliers: () =>
       searchLocalSuppliers(query, locations),
-    local_packaging_shipping_logistics: () => searchLogistics(query, locations),
+    local_packaging_shipping_logistics: () => searchLogistics(query),
     local_documentation_regulatory_contacts: () => searchDocumentation(query, locations),
   };
 
@@ -245,7 +249,22 @@ export async function searchContacts({
 
   const alreadySearchedEveryType = contactTypes.length === ALL_CONTACT_TYPES.length;
   if (!alreadySearchedEveryType) {
-    const everyType = await runSearch(query, null, ALL_CONTACT_TYPES);
+    // Only widen into international_buyers_of_food_products if the
+    // caller actually wanted it -- it's categorically different from the
+    // other three (who BUYS from this exporter abroad, not who locally
+    // PROVIDES them a product/service/paperwork). The stale/wrong
+    // contactType guess this cascade exists to recover from (see this
+    // function's own comment) is realistically a mix-up between those
+    // three local directories, never a mix-up with buyers -- so a
+    // service/supplier search that comes up empty should never widen
+    // into a directory of buyers, which could never have answered it
+    // anyway.
+    const wantedBuyers = contactTypes.includes('international_buyers_of_food_products');
+    const widenedTypes = wantedBuyers
+      ? ALL_CONTACT_TYPES
+      : ALL_CONTACT_TYPES.filter((t) => t !== 'international_buyers_of_food_products');
+
+    const everyType = await runSearch(query, null, widenedTypes);
     if (everyType.length > 0) {
       return {
         contacts: everyType,
