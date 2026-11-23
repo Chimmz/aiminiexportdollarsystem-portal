@@ -21,28 +21,32 @@ export function createSearchContactsTool() {
           and local_raw_processed_food_product_suppliers. The service to
           search, for local_packaging_shipping_logistics and
           local_documentation_regulatory_contacts -- those two have no
-          product field. Resolve from earlier in the conversation if the
-          latest message doesn't repeat it.`
+          product field. The bare term only, nothing else -- this is
+          matched as an AND search against the real listing text, so an
+          extra word that isn't actually in the data (a role word like
+          "supplier"/"seller"/"provider", always implied by which
+          directory this is, never part of the listing itself) zeroes
+          out an otherwise-real match instead of narrowing it. One term,
+          not several synonyms joined together either. Forbidden: "pouch
+          suppliers", "ziplock bags / ziploc pouches suppliers". Allowed:
+          "pouch", "ziplock bags".`
       ),
       locations: z
         .array(z.string())
         .nullable()
         .describe(
           `Nigeria-based exporter. For international_buyers_of_food_products:
-          only a country name, the destination market (e.g. "Canada") --
-          never a Nigerian state/city, including their own base or
-          sourcing location, which is a different thing from who they're
-          selling to. If the only location mentioned is their own base
-          and no destination country's been named, don't substitute it --
-          ask instead. For the other three directories (already
-          exclusively Nigerian): a Nigerian state or city instead (their
-          own area is often right, for nearby suppliers); never "Nigeria"
-          itself. Resolve from earlier in the conversation if unrepeated,
-          but only the valid kind for whichever directory. Null/empty
-          only when location genuinely doesn't matter, never as a
-          stand-in for one you couldn't resolve. Pass their own wording
-          through unchanged -- resolving aliases/regions happens
-          server-side.`
+          only the destination country (e.g. "Canada") -- never their own
+          base/sourcing location, and don't substitute their own base if
+          no destination's been named, ask instead. For the other three
+          directories (already exclusively Nigerian): a Nigerian state or
+          city instead (their own area is often right, for nearby
+          suppliers); never "Nigeria" itself. If resolving one from
+          earlier in the conversation, only the valid kind for whichever
+          directory applies here. Null/empty only when location genuinely
+          doesn't matter, never as a stand-in for one you couldn't
+          resolve. Pass wording through unchanged -- aliases/regions
+          resolve server-side.`
         ),
       contactTypes: z
         .array(z.enum(CONTACT_TYPE_VALUES))

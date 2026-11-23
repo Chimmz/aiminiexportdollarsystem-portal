@@ -12,11 +12,10 @@ import { retrieveRelatedVideos } from '@/lib/actions/video-actions';
 export function createSearchVideosTool() {
   return tool({
     description: `Show a real demo video when the conversation is about
-      how to physically do a packaging technique or process (sealing,
-      using a heat gun, pouch-filling, shrink-wrapping) -- call this
-      instead of only describing the steps in text. Not for what finished
-      packaging looks like (that's searchMedia's photos) -- this is for
-      how it's actually done.`,
+      how to physically do a packaging technique (sealing, using a heat
+      gun, pouch-filling, shrink-wrapping) -- instead of only describing
+      the steps in text. Not for what finished packaging looks like
+      (searchMedia's job) -- for how it's actually done.`,
     inputSchema: z.object({
       query: z.string().describe(
         `A clear, self-contained restatement of the technique or product

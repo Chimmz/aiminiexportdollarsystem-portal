@@ -13,29 +13,27 @@ import {
 export function createMediaSearchTool() {
   return tool({
     description: `Show real reference photos of product packaging when the
-      conversation is actually about packaging, labeling, product design,
-      or branding -- call this instead of only describing what good
-      packaging looks like in text. See intent for which of two things
-      applies.`,
+      conversation is about packaging, labeling, product design, or
+      branding -- instead of only describing it in text. See intent for
+      which of two things applies.`,
     inputSchema: z.object({
       intent: z.enum(['product_or_style_example', 'packaging_rules']).describe(
-        `"product_or_style_example": the user wants to see a specific
-            product's packaging, or a packaging style (pouch, bottle,
-            container) in general -- fill product and/or packagingStyle.
-            "packaging_rules": the conversation's about general front/back
-            label rules, not one product or style -- these pull from a
-            different photo set (front+back shots teaching the standard,
-            not a finished package look).`
+        `"product_or_style_example": wants to see a specific product's
+            packaging, or a packaging style (pouch, bottle, container) in
+            general -- fill product and/or packagingStyle.
+            "packaging_rules": general front/back label rules, not one
+            product or style -- pulls from a different photo set
+            (front+back shots teaching the standard, not a finished
+            look).`
       ),
       product: z
         .string()
         .nullable()
         .describe(
           `The specific product being discussed, resolved from the
-            conversation if not in the latest message, e.g. "kilishi".
-            Set this even for intent "packaging_rules" (narrows which
-            example shows, if one exists). Null if no specific product is
-            the focus.`
+            conversation if unrepeated, e.g. "kilishi". Set even for
+            intent "packaging_rules" (narrows which example shows, if one
+            exists). Null if no specific product is the focus.`
         ),
       packagingStyle: z
         .string()

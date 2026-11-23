@@ -14,13 +14,10 @@ export function createSearchKbTool(messages: ModelMessage[]) {
   void messages;
 
   return tool({
-    description: `Look up information from the export-business training
-      knowledge base to answer the user's question -- sourcing, pricing,
+    description: `Your own curated training material on sourcing, pricing,
       buyers, shipping, documentation, processing, packaging, payment,
-      regulations, or any export-related topic. Call this before
-      answering any export question, even one that sounds like common
-      knowledge (e.g. "what are my payment options") -- the material has
-      specific, curated guidance general knowledge won't reproduce.`,
+      regulations, or any export topic -- see WHAT YOU KNOW in your
+      instructions for when to call this.`,
     inputSchema: z.object({
       query: z.string().describe(
         `A clear, self-contained restatement of what the user wants to
@@ -38,11 +35,15 @@ export function createSearchKbTool(messages: ModelMessage[]) {
           needs both. Null if too abstract for literal matching to help.`
         ),
       scope: z.enum(['specific', 'medium', 'broad']).describe(
-        `How wide a net this needs. "specific" for one narrow, concrete
-          thing (a product, a step, a number). "broad" for an open-ended
-          guide/process question spanning many subtopics. "medium" in
-          between. Pick the smallest scope that covers the question --
-          wider returns more chunks, costing more context.`
+        `How wide a net this needs, for THIS message alone -- earlier
+          topics in the conversation don't widen it. "specific" for one
+          narrow, concrete thing (a product, a step, a number) -- most
+          single-line questions are this, even if the conversation's
+          already covered other products or topics. "broad" only when
+          this message itself is an open-ended guide/process question
+          spanning many subtopics. "medium" in between. Pick the
+          smallest scope that covers the question -- wider returns more
+          chunks, costing more context.`
       ),
     }),
     execute: async ({ query, keyword, scope }) => {
