@@ -44,7 +44,7 @@ const faqItems = [
   {
     question: 'Can I switch plans later?',
     answer:
-      'Yes. You can move between the 30-day, 3-month, and 6-month plans at any time from the upgrade page.',
+      'Yes. You can move between the 30-day and 3-month plans at any time from the upgrade page.',
   },
 ];
 

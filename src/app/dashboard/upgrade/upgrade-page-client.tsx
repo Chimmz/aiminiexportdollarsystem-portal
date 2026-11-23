@@ -50,7 +50,7 @@ const billingFaq = [
   {
     question: 'Can I switch plans later?',
     answer:
-      'Yes. You can move between the 30-day, 3-month, and 6-month plans at any time from this page.',
+      'Yes. You can move between the 30-day and 3-month plans at any time from this page.',
   },
   {
     question: 'Is this refundable?',
@@ -123,7 +123,20 @@ export function UpgradePageClient({
         <p className="mx-auto max-w-prose text-sm text-muted-foreground">{header.body}</p>
       </FadeIn>
 
-      <div className="grid gap-6 sm:grid-cols-3">
+      {/* Column count and max-width derive from how many plans are
+          actually active, not hardcoded -- this grid was built for 3
+          tiers, then silently went lopsided (left-aligned, one empty
+          slot) the moment 6-month was deactivated down to 2. Deriving it
+          means the next plan-count change (there's already been two in
+          as many sessions) doesn't need a matching edit here too. */}
+      <div
+        className={cn(
+          'mx-auto grid gap-6',
+          plans.length <= 1 && 'max-w-sm',
+          plans.length === 2 && 'max-w-2xl sm:grid-cols-2',
+          plans.length >= 3 && 'max-w-4xl sm:grid-cols-3'
+        )}
+      >
         {plans.map((tier, index) => {
           const isCurrent = tier.id === accessStatus.currentPlanId;
           const perMonth = planPerMonthLabel(tier.priceKobo, tier.durationDays);
