@@ -10,6 +10,11 @@ export type CurrentUser = {
   // supabase/schema_app.sql) — doubles as "has this person used the AI at
   // least once," since nothing else in the schema tracks that yet.
   activatedAt: string | null;
+  // Set once the first-login intake survey (src/app/onboarding) is
+  // submitted -- gates every /dashboard/* route until then (see
+  // dashboard/layout.tsx). Distinct from activatedAt/hasSentFirstMessage
+  // below, which is about the mentor chat specifically, not account setup.
+  intakeCompletedAt: string | null;
   // See migrations/0027_users_role.sql -- 'user' for everyone except the
   // handful of internal accounts explicitly promoted in the DB.
   role: UserRole;

@@ -14,7 +14,7 @@ export interface ProfileFact {
   factType: string;
   factValue: string;
   confidence: number | null;
-  source: 'chat_extracted' | 'user_provided';
+  source: 'chat_extracted' | 'user_provided' | 'intake';
 }
 
 export interface UserMemory {
@@ -30,8 +30,14 @@ export interface UserMemory {
 // set from an earlier conversation that was since cleared, which made it
 // a false signal for "is this genuinely their first message ever," not a
 // true one.
+//
+// Facts sourced from the first-login intake survey (source 'intake') are
+// deliberately excluded here -- every user answers that before they can
+// reach the dashboard at all (see src/app/onboarding), so counting it
+// would make isFirstEverMessage false for literally everyone and silently
+// kill the FIRST MESSAGE EVER treatment in config.ts this exists to gate.
 export function hasNoMemory(memory: UserMemory): boolean {
-  if (memory.facts.length > 0) return false;
+  if (memory.facts.some((f) => f.source !== 'intake')) return false;
   const { setup, activeDeals, pastDeals } = memory.exportJourneyProgress;
   if (activeDeals.length > 0 || pastDeals.length > 0) return false;
   return Object.values(setup).every((step) => step.status === 'not_started');

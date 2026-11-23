@@ -21,7 +21,9 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
 
   const { data: userRow } = await supabase
     .from("users")
-    .select("id, email, full_name, company_name, created_at, activated_at, role")
+    .select(
+      "id, email, full_name, company_name, created_at, activated_at, intake_completed_at, role"
+    )
     .eq("id", claims.claims.sub)
     .single();
 
@@ -33,6 +35,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       companyName: userRow.company_name,
       createdAt: userRow.created_at,
       activatedAt: userRow.activated_at,
+      intakeCompletedAt: userRow.intake_completed_at,
       role: userRow.role as CurrentUser["role"],
     };
   }
@@ -56,7 +59,9 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const { data: healedRow, error: healError } = await service
     .from("users")
     .upsert({ id: claims.claims.sub, email }, { onConflict: "id" })
-    .select("id, email, full_name, company_name, created_at, activated_at, role")
+    .select(
+      "id, email, full_name, company_name, created_at, activated_at, intake_completed_at, role"
+    )
     .single();
 
   if (healError || !healedRow) {
@@ -71,6 +76,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     companyName: healedRow.company_name,
     createdAt: healedRow.created_at,
     activatedAt: healedRow.activated_at,
+    intakeCompletedAt: healedRow.intake_completed_at,
     role: healedRow.role as CurrentUser["role"],
   };
 });

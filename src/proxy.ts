@@ -42,7 +42,10 @@ export async function proxy(request: NextRequest) {
 
   const { pathname, search } = request.nextUrl;
 
-  if (pathname.startsWith("/dashboard") && !isAuthed) {
+  if (
+    (pathname.startsWith("/dashboard") || pathname.startsWith("/onboarding")) &&
+    !isAuthed
+  ) {
     const signInUrl = new URL("/sign-in", request.url);
     signInUrl.searchParams.set("next", `${pathname}${search}`);
     return NextResponse.redirect(signInUrl);

@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import { AppSidebar } from '@/components/dashboard/app-sidebar';
 import { DashboardMain } from '@/components/dashboard/dashboard-main';
 import { MobileSidebarTrigger } from '@/components/dashboard/mobile-sidebar-trigger';
@@ -11,6 +12,14 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user } = await requireCurrentUser();
+
+  // Gates every /dashboard/* route (this layout wraps all of them) until
+  // the first-login intake survey is done -- see src/app/onboarding,
+  // which is deliberately its own top-level route outside /dashboard so
+  // it never re-enters this same check.
+  if (!user.intakeCompletedAt) {
+    redirect('/onboarding');
+  }
 
   return (
     // Default --sidebar-width is 16rem (see SIDEBAR_WIDTH in ui/sidebar.tsx)

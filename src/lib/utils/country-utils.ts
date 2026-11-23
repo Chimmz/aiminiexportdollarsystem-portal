@@ -133,7 +133,7 @@ const REGION_KEYWORDS: Record<string, string> = {
 // substring check in contacts-utils.ts can't bridge this on its own --
 // that only handles one name with a suffix/prefix added to the other
 // (e.g. "Ogun" vs "Ogun State").
-const NIGERIA_STATE_CAPITALS: Record<string, string> = {
+export const NIGERIA_STATE_CAPITALS: Record<string, string> = {
   Abia: 'Umuahia',
   Adamawa: 'Yola',
   'Akwa Ibom': 'Uyo',
