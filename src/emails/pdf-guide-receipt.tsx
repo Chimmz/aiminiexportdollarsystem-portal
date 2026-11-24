@@ -137,7 +137,7 @@ export function PdfGuideReceiptEmail({
 
           <Section style={{ textAlign: 'center' as const }}>
             <Button href={signInUrl} style={button}>
-              Sign in to get your guide
+              Sign in to get everything
             </Button>
             <Text style={hint}>Enter the same email you used in your purchase: {email}.</Text>
           </Section>
