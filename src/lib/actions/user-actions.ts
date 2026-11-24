@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { unstable_cache, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -168,4 +169,47 @@ export async function getUserAccessTier(userId: string): Promise<AccessStatus["s
     .eq("user_id", userId)
     .maybeSingle();
   return (data?.status as AccessStatus["status"] | undefined) ?? "expired";
+}
+
+function accessTierCacheTag(userId: string): string {
+  return `access-tier:${userId}`;
+}
+
+// /api/mentor/chat's checkMentorChatLimits calls this on literally every
+// message attempt -- including every retry from a user who's already
+// locked out and has no way to change that short of paying, which was
+// hitting user_access_status on every single one of those for an answer
+// that can't have changed. Cached per user for ACCESS_TIER_CACHE_SECONDS.
+//
+// Deliberately a short TTL, not cached indefinitely: an *active* period
+// ending is a pure clock event (access_periods.ends_at passing) with no
+// corresponding write anywhere in this app to revalidate on, so a bounded
+// TTL is what keeps that transition from going unnoticed for too long.
+// The opposite transition -- expired -> active, via a successful payment
+// -- IS a write we always see: createAccessPeriodForPayment
+// (access-actions.ts) calls revalidateAccessTier right after crediting
+// any payment, from every origin (Paystack webhook, Flutterwave, the
+// sales-site handoff), which expires this cache immediately via
+// `{ expire: 0 }` -- so paying never has to wait out the TTL below.
+const ACCESS_TIER_CACHE_SECONDS = 60;
+
+export async function getCachedUserAccessTier(
+  userId: string
+): Promise<AccessStatus["status"]> {
+  const cached = unstable_cache(
+    () => getUserAccessTier(userId),
+    ["user-access-tier", userId],
+    { revalidate: ACCESS_TIER_CACHE_SECONDS, tags: [accessTierCacheTag(userId)] }
+  );
+  return cached();
+}
+
+// Called right after a payment is credited (createAccessPeriodForPayment)
+// so the next message this user sends re-checks access instead of
+// reusing a cached "expired" read from before they paid. `{ expire: 0 }`
+// per revalidateTag's own docs for invalidation triggered from a webhook
+// or any other non-Server-Action caller -- stale content is never served,
+// so the very next read is a guaranteed cache miss.
+export function revalidateAccessTier(userId: string): void {
+  revalidateTag(accessTierCacheTag(userId), { expire: 0 });
 }

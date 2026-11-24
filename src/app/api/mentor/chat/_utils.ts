@@ -1,6 +1,6 @@
 import type { JSONValue, ModelMessage } from 'ai';
 import { summarizeContactsForModel, type ContactCard } from '@/lib/utils/contacts-utils';
-import { getUserAccessTier } from '@/lib/actions/user-actions';
+import { getCachedUserAccessTier } from '@/lib/actions/user-actions';
 import type { AccessStatus } from '@/lib/utils/user-utils';
 import {
   getLifetimeTokenUsage,
@@ -96,13 +96,13 @@ function formatRetryAfter(seconds: number): string {
 // Also returns the resolved tier itself -- route.ts needs it again right
 // after this to size lib/mentor/working-memory.ts's recent/reranked
 // windows (WORKING_MEMORY_LIMITS is keyed by 'trial' | 'active'), and
-// getUserAccessTier is a plain query, not React-cache()'d, so handing the
-// value back here is what saves that second round trip rather than
-// calling it again.
+// getCachedUserAccessTier is a plain cached query, not React-cache()'d,
+// so handing the value back here is what saves that second round trip
+// rather than calling it again.
 export async function checkMentorChatLimits(
   userId: string
 ): Promise<{ response: Response | null; tier: AccessStatus['status'] }> {
-  const tier = await getUserAccessTier(userId);
+  const tier = await getCachedUserAccessTier(userId);
 
   if (tier === 'expired') {
     return { response: new Response(ACCESS_EXPIRED_MESSAGE, { status: 402 }), tier };

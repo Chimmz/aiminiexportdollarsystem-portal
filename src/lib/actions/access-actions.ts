@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service';
 import { sendTrialUpgradePromptEmail } from '@/lib/actions/email-actions';
+import { revalidateAccessTier } from '@/lib/actions/user-actions';
 
 // The two halves of the activation/extension algorithm documented on
 // access_periods in supabase/schema_app.sql. Shared by convert-lead.ts
@@ -38,6 +39,7 @@ export async function createAccessPeriodForPayment(params: {
       duration_days: params.durationDays,
     });
     if (error) throw new Error(`create unactivated access_period: ${error.message}`);
+    revalidateAccessTier(params.userId);
     return;
   }
 
@@ -63,6 +65,7 @@ export async function createAccessPeriodForPayment(params: {
     ends_at: endsAt.toISOString(),
   });
   if (error) throw new Error(`create activated access_period: ${error.message}`);
+  revalidateAccessTier(params.userId);
 }
 
 // Called from /api/mentor/chat the first time a user with no activated_at
