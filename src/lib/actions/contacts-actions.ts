@@ -107,7 +107,7 @@ async function searchLocalSuppliers(
   let q = supabase
     .from('local_supplier_contacts')
     .select(
-      'supplier_group, supplier, city, state, products, phone_1, phone_2, email, social, price_listed, price_month, minimum_order, delivery_note, last_listed'
+      'supplier_group, supplier, city, state, products, phone_1, phone_2, email, social, price_listed, price_month, minimum_order, delivery_note, last_listed, featured'
     );
   if (query.trim()) {
     q = q.textSearch('search_tsv', query.trim(), {
@@ -116,7 +116,10 @@ async function searchLocalSuppliers(
     });
   }
 
-  const { data, error } = await q.limit(FETCH_CAP);
+  // Featured contacts (migration 0034) sort first -- a deliberate
+  // override of ordinary ranking for a specific contact, not a quality
+  // signal every row earns.
+  const { data, error } = await q.order('featured', { ascending: false }).limit(FETCH_CAP);
   if (error) throw new Error(`local supplier contacts: ${error.message}`);
 
   return (data ?? [])
