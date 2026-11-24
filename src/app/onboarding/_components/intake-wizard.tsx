@@ -78,7 +78,7 @@ export function IntakeWizard({ firstName }: { firstName: string | null }) {
       } catch {
         setSubmitting(false);
         toast('Could not save your answers', {
-          description: 'Check your connection and try again.',
+          description: "Something went wrong on our end. Please try again, and if it keeps happening, reach out to us.",
         });
       }
       return;
