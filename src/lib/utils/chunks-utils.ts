@@ -7,10 +7,32 @@ import * as retrieval from '@/lib/rag/retrieval';
 // lib/rag/retrieval's generic keywordSearch()/semanticSearch()/rerank(),
 // none of which know chunks exist.
 
+// Whether a chunk's content is a real exchange (a specific question someone
+// asked and how it was answered, a specific mentee's story) versus settled
+// general teaching (a process, a rule, a formula). This used to be left for
+// the model to infer from unstructured prose while also recalling a voice
+// rule from elsewhere in its instructions -- unreliable in practice (the
+// model kept answering KB-grounded questions in flat first person no matter
+// how that rule was worded). Classifying it here instead, from the chunk's
+// own literal markup (the raw course transcripts already tag exchanges this
+// way), turns "notice this is an anecdote" into a fact the model is just
+// handed alongside the content, not something it has to detect itself.
+export type ChunkKind = 'exchange' | 'teaching';
+
+function classifyChunkKind(content: string): ChunkKind {
+  const isExchange =
+    (/STUDENT:/i.test(content) && /INSTRUCTOR:/i.test(content)) ||
+    (/\bQuestion:/i.test(content) && /\bAnswer:/i.test(content)) ||
+    /^\[(?:Q|Question):/i.test(content.trim()) ||
+    /\bmentee\b/i.test(content);
+  return isExchange ? 'exchange' : 'teaching';
+}
+
 export interface RetrievedChunk {
   id: number;
   content: string;
   sourceLabel: string | null;
+  kind: ChunkKind;
 }
 
 export interface ChunkRow {
@@ -22,7 +44,12 @@ export interface ChunkRow {
 export function toRankedChunks(rows: ChunkRow[]): retrieval.RankedResult<RetrievedChunk>[] {
   return rows.map((row) => ({
     id: String(row.id),
-    item: { id: row.id, content: row.content, sourceLabel: row.source_label },
+    item: {
+      id: row.id,
+      content: row.content,
+      sourceLabel: row.source_label,
+      kind: classifyChunkKind(row.content),
+    },
   }));
 }
 

@@ -17,7 +17,16 @@ export function createSearchKbTool(messages: ModelMessage[]) {
     description: `Your own curated training material on sourcing, pricing,
       buyers, shipping, documentation, processing, packaging, payment,
       regulations, or any export topic -- see WHAT YOU KNOW in your
-      instructions for when to call this.`,
+      instructions for when to call this. Calling this tool means every
+      piece of its material gets reported third person in your answer, not
+      owned first person ("The instructor explains...", "An expert
+      advises..."), even for a plain rule/process chunk and even when it's
+      just one bullet among several in a checklist answer. Each returned
+      chunk's "kind" only flavors how: "exchange" (a real question someone
+      asked and how it was answered, or a specific mentee's story) earns
+      the fuller "A student once asked..." framing; "teaching" still gets
+      the shorter "The instructor explains..." one, never first person.
+      WHAT YOU KNOW has the exact phrasing rules.`,
     inputSchema: z.object({
       query: z.string().describe(
         `A clear, self-contained restatement of what the user wants to
