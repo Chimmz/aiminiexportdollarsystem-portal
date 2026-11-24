@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeftIcon, ArrowRightIcon, Loader2Icon } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -69,7 +70,17 @@ export function IntakeWizard({ firstName }: { firstName: string | null }) {
     const isLastOfKnownSteps = stepIndex + 1 >= nextSteps.length;
     if (isLastOfKnownSteps) {
       setSubmitting(true);
-      await completeIntake(next);
+      try {
+        await completeIntake(next);
+        // completeIntake redirects server-side on success -- this point
+        // only reruns if that call threw instead (redirect()'s own throw
+        // is handled by Next before it ever reaches here as a rejection).
+      } catch {
+        setSubmitting(false);
+        toast('Could not save your answers', {
+          description: 'Check your connection and try again.',
+        });
+      }
       return;
     }
     const primed = primeDraftsForQuestion(nextSteps[stepIndex + 1], next);
@@ -206,6 +217,13 @@ export function IntakeWizard({ firstName }: { firstName: string | null }) {
                   ))}
                 </SelectContent>
               </Select>
+            )}
+
+            {submitting && question.type !== 'text' && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2Icon className="size-4 animate-spin" />
+                Saving your answers…
+              </div>
             )}
 
             {question.type === 'text' && (
