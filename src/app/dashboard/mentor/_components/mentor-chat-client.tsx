@@ -332,7 +332,13 @@ export function MentorChatClient({
   // clicked, not a plain boolean, so a later turn's new chips become
   // clickable again on their own (dismissedMessageId simply won't match
   // the new message's id) without a separate reset effect anywhere.
-  const suggestionClickedForIdRef = useRef<string | null>(null);
+  // undefined, not null, as the sentinel -- lastAssistantMessageId is
+  // itself null for the empty-chat starter chips (no assistant message
+  // exists yet), so starting this ref at null made that very first click
+  // read as null === null, "already clicked for this id", and bail out
+  // before ever calling sendUserMessage. undefined can't collide with
+  // either a real message id or that legitimate null.
+  const suggestionClickedForIdRef = useRef<string | null | undefined>(undefined);
   const [dismissedMessageId, setDismissedMessageId] = useState<string | null>(null);
 
   // Not wrapped in useCallback -- it closes over lastAssistantMessageId,
